@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc, collection, query, where, getDocs, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useBusiness } from "@/context/BusinessContext";
+import JobDetailModal from "./JobDetailModal";
 
 type Vehicle = {
   id: string;
@@ -41,12 +42,23 @@ function InfoRow({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-type JobListItem = {
+export type JobListItem = {
   id: string;
   title: string;
   status?: string | null;
   createdAt?: Timestamp | Date | string | null;
   updatedAt?: Timestamp | Date | string | null;
+  vehicleId?: string;
+  category?: string | null;
+  mileage?: number | null;
+  notes?: string | null;
+  selectedQuickJobs?: {
+    name: string;
+    brand: string;
+    quantity: number;
+    unitPrice: number;
+  }[];
+  imageUrls?: string[];
 };
 
 function formatTrDate(value: JobListItem["createdAt"]) {
@@ -112,6 +124,7 @@ export default function VehicleDetailPage() {
   const [copied, setCopied] = useState(false);
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobListItem[]>([]);
+  const [activeJob, setActiveJob] = useState<JobListItem | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     ownerName: "",
@@ -178,10 +191,25 @@ export default function VehicleDetailPage() {
             };
             return {
               id: d.id,
+              vehicleId: snap.id,
               title: data.title ?? "(Başlıksız işlem)",
               status: data.status ?? null,
               createdAt: data.createdAt ?? null,
               updatedAt: data.updatedAt ?? null,
+              category: (data as any).category ?? null,
+              mileage:
+                typeof (data as any).mileage === "number"
+                  ? (data as any).mileage
+                  : (data as any).mileage
+                    ? Number((data as any).mileage)
+                    : null,
+              notes: (data as any).notes ?? null,
+              selectedQuickJobs: Array.isArray((data as any).selectedQuickJobs)
+                ? ((data as any).selectedQuickJobs as JobListItem["selectedQuickJobs"])
+                : [],
+              imageUrls: Array.isArray((data as any).imageUrls)
+                ? ((data as any).imageUrls as string[])
+                : [],
             };
           });
 
@@ -409,7 +437,7 @@ export default function VehicleDetailPage() {
 
                 {/* Motor */}
                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Motor</span>
-                                <span className="text-gray-900">
+                <span className="text-gray-900">
                   {vehicle.engineSize} {fuelTypeMap[vehicle.fuelType] || vehicle.fuelType}
                 </span>
 
@@ -466,41 +494,54 @@ export default function VehicleDetailPage() {
                       const badge = statusBadge(job.status);
 
                       return (
-                      <li key={job.id} className="py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-400 flex items-center justify-center shrink-0">
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="w-5 h-5"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden
-                            >
-                              <path d="M9 12h6" />
-                              <path d="M12 9v6" />
-                              <path d="M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
-                            </svg>
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-3">
-                              <p className="text-sm font-medium text-gray-900 truncate">
-                                {job.title}
-                              </p>
-                              <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${badge.className}`}>
-                                {badge.label}
-                              </span>
+                        <li key={job.id} className="py-2">
+                          <button
+                            type="button"
+                            onClick={() => setActiveJob(job)}
+                            className="w-full text-left flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-200"
+                          >
+                            <div className="w-10 h-10 rounded-full bg-yellow-100 text-yellow-400 flex items-center justify-center shrink-0">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-5 h-5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                              >
+                                <path d="M9 12h6" />
+                                <path d="M12 9v6" />
+                                <path d="M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
+                              </svg>
                             </div>
-                            <p className="mt-1 text-xs text-gray-500">
-                              Son güncelleme: <span className="text-gray-700">{lastText}</span>
-                            </p>
-                          </div>
-                        </div>
-                      </li>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 truncate">
+                                    {job.title}
+                                  </p>
+                                  {job.mileage != null && !Number.isNaN(job.mileage) && (
+                                    <p className="mt-0.5 text-xs text-gray-500">
+                                      {job.mileage.toLocaleString("tr-TR")} km
+                                    </p>
+                                  )}
+                                </div>
+                                <span
+                                  className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${badge.className}`}
+                                >
+                                  {badge.label}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-gray-500">
+                                Son güncelleme: <span className="text-gray-700">{lastText}</span>
+                              </p>
+                            </div>
+                          </button>
+                        </li>
                       );
                     })}
                   </ul>
@@ -539,23 +580,20 @@ export default function VehicleDetailPage() {
       </div>
       {/* Edit Sheet */}
       <div
-        className={`fixed inset-0 z-50 flex ${
-          isEditOpen ? "pointer-events-auto" : "pointer-events-none"
-        }`}
+        className={`fixed inset-0 z-50 flex ${isEditOpen ? "pointer-events-auto" : "pointer-events-none"
+          }`}
       >
         {/* Overlay */}
         <div
-          className={`fixed inset-0 bg-black/30 transition-opacity duration-300 ${
-            isEditOpen ? "opacity-100" : "opacity-0"
-          }`}
+          className={`fixed inset-0 bg-black/30 transition-opacity duration-300 ${isEditOpen ? "opacity-100" : "opacity-0"
+            }`}
           onClick={() => setIsEditOpen(false)}
         />
 
         {/* Sheet */}
         <div
-          className={`relative ml-auto w-full max-w-md h-full bg-white shadow-xl p-6 overflow-y-auto transform transition-transform duration-300 ease-out ${
-            isEditOpen ? "translate-x-0" : "translate-x-full"
-          }`}
+          className={`relative ml-auto w-full max-w-md h-full bg-white shadow-xl p-6 overflow-y-auto transform transition-transform duration-300 ease-out ${isEditOpen ? "translate-x-0" : "translate-x-full"
+            }`}
         >
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -777,11 +815,10 @@ export default function VehicleDetailPage() {
                             console.error(err);
                           }
                         }}
-                        className={`w-full mt-4 py-2.5 rounded-lg font-semibold transition ${
-                          isFormValid
+                        className={`w-full mt-4 py-2.5 rounded-lg font-semibold transition ${isFormValid
                             ? "bg-yellow-100 hover:bg-yellow-200 text-yellow-600"
                             : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                        }`}
+                          }`}
                       >
                         Kaydet
                       </button>
@@ -793,6 +830,21 @@ export default function VehicleDetailPage() {
           })()}
         </div>
       </div>
+      {/* Job Detail Modal */}
+      {business && (
+        <JobDetailModal
+          job={activeJob}
+          businessId={business.id}
+          vehicleId={vehicle.id}
+          onClose={() => setActiveJob(null)}
+          onJobUpdated={(updated: JobListItem) => {
+            setJobs((prev) =>
+              prev.map((j) => (j.id === updated.id ? { ...j, ...updated } : j)),
+            );
+            setActiveJob(updated);
+          }}
+        />
+      )}
     </div>
   );
 }

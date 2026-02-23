@@ -90,6 +90,12 @@ export default function NewJobPage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const formatMileage = (value: string) => {
+    const numeric = value.replace(/\D/g, "");
+    if (!numeric) return "";
+    return Number(numeric).toLocaleString("tr-TR");
+  };
+
   const [selectedQuickJobs, setSelectedQuickJobs] = useState<
     {
       name: string;
@@ -190,7 +196,7 @@ export default function NewJobPage() {
         vehicleId: id,
         title,
         category,
-        mileage: Number(mileage),
+        mileage: Number(mileage.replace(/\./g, "")),
         notes: notes || null,
         selectedQuickJobs,
         imageUrls: uploadedImageUrls,
@@ -348,10 +354,14 @@ export default function NewJobPage() {
                 Kilometre <span className="text-red-500">*</span>
               </label>
               <input
-                type="number"
-                placeholder="Örn: 50000"
+                type="text"
+                inputMode="numeric"
+                placeholder="Örn: 150.000"
                 value={mileage}
-                onChange={(e) => setMileage(e.target.value)}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/\D/g, "");
+                  setMileage(formatMileage(raw));
+                }}
                 className={inputBase}
                 required
               />

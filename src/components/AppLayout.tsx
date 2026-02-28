@@ -26,15 +26,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       
       {/* Hamburger butonu */}
       <button
-        onClick={() => setSidebarOpen(true)}
-        className={`fixed top-4 left-4 z-40 p-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-transform ${
-          sidebarOpen ? "lg:translate-x-64" : ""
-        }`}
+        onClick={() => setSidebarOpen((prev) => !prev)}
+        className="fixed top-4 left-4 z-40 w-9 h-9 flex items-center justify-center bg-white border border-gray-200 rounded-md shadow hover:bg-gray-50"
         aria-label="Menüyü aç"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="w-6 h-6 text-gray-700"
+          className="w-4 h-4 text-gray-700"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"

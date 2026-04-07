@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useBusiness } from "@/context/BusinessContext";
-import { LayoutDashboard, Car, PlusCircle, Settings, Wrench } from "lucide-react";
+import { LayoutDashboard, Car, PlusCircle, Settings, LogOut } from "lucide-react";
+import Image from "next/image";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
+import { useMembershipRole } from "@/lib/useMembershipRole";
 
 const navItems = [
   {
@@ -24,11 +29,25 @@ const navItems = [
     icon: PlusCircle,
     exact: true,
   },
+  {
+    href: "/settings",
+    label: "Ayarlar",
+    icon: Settings,
+    exact: true,
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { business } = useBusiness();
+  const router = useRouter();
+
+  const { role } = useMembershipRole();
+  const canCreateVehicle = role === "owner" || role === "manager";
+  const visibleNavItems = navItems.filter((item) => {
+    if (item.href === "/vehicles/new") return canCreateVehicle;
+    return true;
+  });
 
   return (
     <>
@@ -38,8 +57,13 @@ export default function Sidebar() {
         {/* Logo / Brand */}
         <div className="px-5 pt-6 pb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-amber-400 flex items-center justify-center shrink-0">
-              <Wrench className="w-3.5 h-3.5 text-[#111110]" />
+            <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center shrink-0">
+              <Image
+                src="/logo.jpeg"
+                alt="Servis Panel logo"
+                width={24}
+                height={24}
+              />
             </div>
             <div className="min-w-0">
               <p className="text-[11px] font-bold text-white tracking-widest uppercase leading-none">Servis Panel</p>
@@ -56,7 +80,7 @@ export default function Sidebar() {
         {/* Nav */}
         <nav className="flex-1 px-3 pt-4 pb-3 space-y-0.5 overflow-y-auto">
           <p className="px-2 pb-2 text-[9px] font-bold text-white/25 uppercase tracking-widest">Navigasyon</p>
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = item.exact
               ? pathname === item.href
               : pathname === item.href || pathname?.startsWith(item.href + "/");
@@ -89,26 +113,28 @@ export default function Sidebar() {
         {/* Divider */}
         <div className="mx-4 h-px bg-white/[0.06]" />
 
-        {/* Footer */}
+        {/* Logout */}
         <div className="px-4 py-4">
-          <div className="flex items-center gap-2.5 px-2 py-2">
-            <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
-              <span className="text-[10px] font-bold text-white/60">
-                {business?.name?.slice(0, 1)?.toUpperCase() ?? "S"}
-              </span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold text-white/60 truncate">{business?.name ?? "İşletme"}</p>
-              <p className="text-[9px] text-white/25 mt-0.5 font-medium uppercase tracking-wider">Aktif</p>
-            </div>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-          </div>
+          <button
+            onClick={async () => {
+              try {
+                await signOut(auth);
+                router.replace("/login");
+              } catch (err) {
+                console.error(err);
+              }
+            }}
+            className="w-full flex items-center justify-start gap-2 px-3 py-2.5 rounded-xl text-sm font-medium text-white/60 hover:text-red-500 hover:bg-red-500/10 transition cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Çıkış yap</span>
+          </button>
         </div>
       </aside>
 
       {/* ── Mobile Bottom Nav ───────────────────────────────────────────── */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#111110] border-t border-white/[0.06] flex">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive = item.exact
             ? pathname === item.href
             : pathname === item.href || pathname?.startsWith(item.href + "/");

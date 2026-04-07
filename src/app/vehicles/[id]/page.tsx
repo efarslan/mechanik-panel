@@ -10,6 +10,8 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useBusiness } from "@/context/BusinessContext";
+import { useAuth } from "@/lib/useAuth";
+import { useMembershipRole } from "@/lib/useMembershipRole";
 import JobDetailModal from "./JobDetailModal";
 import {
   Wrench, Phone, Car, Search, Filter, Plus, ChevronRight,
@@ -61,20 +63,94 @@ function formatTrDate(value: JobListItem["createdAt"]) {
   return date.toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+type JobDocData = {
+  title?: unknown;
+  status?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  category?: unknown;
+  mileage?: unknown;
+  notes?: unknown;
+  laborFee?: unknown;
+  selectedQuickJobs?: unknown;
+  imageUrls?: unknown;
+};
+
 function docToJob(d: QueryDocumentSnapshot<DocumentData>, vehicleId: string): JobListItem {
-  const data = d.data() as any;
+  const data = d.data() as JobDocData;
+
+  const createdAt =
+    data.createdAt instanceof Timestamp || data.createdAt instanceof Date || typeof data.createdAt === "string"
+      ? (data.createdAt as JobListItem["createdAt"])
+      : null;
+  const updatedAt =
+    data.updatedAt instanceof Timestamp || data.updatedAt instanceof Date || typeof data.updatedAt === "string"
+      ? (data.updatedAt as JobListItem["updatedAt"])
+      : null;
+
+  const title = typeof data.title === "string" ? data.title : "(Başlıksız işlem)";
+  const status = typeof data.status === "string" ? data.status : null;
+  const category = typeof data.category === "string" ? data.category : null;
+
+  const mileage =
+    typeof data.mileage === "number"
+      ? data.mileage
+      : typeof data.mileage === "string"
+        ? Number(data.mileage)
+        : null;
+
+  const laborFee =
+    typeof data.laborFee === "number"
+      ? data.laborFee
+      : typeof data.laborFee === "string"
+        ? Number(data.laborFee)
+        : null;
+
+  const notes = typeof data.notes === "string" ? data.notes : null;
+
+  const selectedQuickJobs = Array.isArray(data.selectedQuickJobs)
+    ? data.selectedQuickJobs
+        .map((x) => {
+          if (!x || typeof x !== "object") return null;
+          const o = x as Record<string, unknown>;
+
+          const name = typeof o.name === "string" ? o.name : null;
+          const brand = typeof o.brand === "string" ? o.brand : null;
+          const quantity =
+            typeof o.quantity === "number"
+              ? o.quantity
+              : typeof o.quantity === "string"
+                ? Number(o.quantity)
+                : null;
+          const unitPrice =
+            typeof o.unitPrice === "number"
+              ? o.unitPrice
+              : typeof o.unitPrice === "string"
+                ? Number(o.unitPrice)
+                : null;
+
+          if (!name || !brand || quantity === null || unitPrice === null) return null;
+          return { name, brand, quantity, unitPrice };
+        })
+        .filter((v): v is NonNullable<typeof v> => v !== null)
+    : [];
+
+  const imageUrls = Array.isArray(data.imageUrls)
+    ? data.imageUrls.filter((x): x is string => typeof x === "string")
+    : [];
+
   return {
     id: d.id, vehicleId,
-    title: data.title ?? "(Başlıksız işlem)",
-    status: data.status ?? null,
-    createdAt: data.createdAt ?? null,
-    updatedAt: data.updatedAt ?? null,
-    category: data.category ?? null,
-    mileage: typeof data.mileage === "number" ? data.mileage : data.mileage ? Number(data.mileage) : null,
-    notes: data.notes ?? null,
-    laborFee: typeof data.laborFee === "number" ? data.laborFee : null,
-    selectedQuickJobs: Array.isArray(data.selectedQuickJobs) ? data.selectedQuickJobs : [],
-    imageUrls: Array.isArray(data.imageUrls) ? data.imageUrls : [],
+    title,
+    status,
+    createdAt,
+    updatedAt,
+    category,
+    mileage: Number.isFinite(mileage as number) ? mileage : null,
+    notes,
+    laborFee: Number.isFinite(laborFee as number) ? laborFee : null,
+    selectedQuickJobs,
+    imageUrls,
   };
 }
 
@@ -95,6 +171,9 @@ export default function VehicleDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { business, loading } = useBusiness();
+  const user = useAuth();
+  const { role, loading: roleLoading } = useMembershipRole();
+  const canCreateJob = role === "owner" || role === "manager" || role === "technician";
 
   // Vehicle
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
@@ -205,7 +284,11 @@ export default function VehicleDetailPage() {
     setLoadingJobs(false);
   }, [id, sortDir]); // ← sortDir added as dependency
 
-  useEffect(() => { fetchFirstPage(); }, [fetchFirstPage]);
+  useEffect(() => {
+    void (async () => {
+      await fetchFirstPage();
+    })();
+  }, [fetchFirstPage]);
 
   // ── Load more ────────────────────────────────────────────────────────────
   const loadMore = async () => {
@@ -440,14 +523,16 @@ export default function VehicleDetailPage() {
                   : `${jobs.length} / ${totalJobCount} işlem yüklendi`}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => router.push(`/vehicles/${vehicle.id}/new-job`)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-400 text-[#111110] hover:bg-amber-500 transition shadow-sm"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Yeni İşlem
-            </button>
+            {canCreateJob && user?.emailVerified && !roleLoading && (
+              <button
+                type="button"
+                onClick={() => router.push(`/vehicles/${vehicle.id}/new-job`)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-400 text-[#111110] hover:bg-amber-500 transition shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Yeni İşlem
+              </button>
+            )}
           </div>
 
           {/* Toolbar */}

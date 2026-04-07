@@ -7,6 +7,8 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db } from "@/lib/firebase";
 import { useBusiness } from "@/context/BusinessContext";
+import { useAuth } from "@/lib/useAuth";
+import { useMembershipRole } from "@/lib/useMembershipRole";
 
 const jobList = [
   "Bakım",
@@ -53,7 +55,10 @@ export default function NewJobPage() {
   const { id } = useParams();
   const router = useRouter();
   const { business } = useBusiness();
+  const user = useAuth();
+  const { role, loading: roleLoading } = useMembershipRole();
   const storage = getStorage();
+  const canCreateJob = role === "owner" || role === "manager" || role === "technician";
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -115,6 +120,58 @@ export default function NewJobPage() {
   const grandTotal = partsTotal + laborFeeNum;
 
   const canSubmit = title.trim() && mileage;
+
+  if (user === undefined || roleLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-9 h-9 border-[3px] border-gray-200 border-t-amber-400 rounded-full animate-spin" />
+          <p className="text-sm text-gray-400 font-medium">Yükleniyor...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center space-y-2">
+          <p className="text-sm font-semibold text-gray-900">Giriş gerekli</p>
+          <Link href="/login" className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#111110] text-white text-xs font-bold hover:bg-gray-800 transition">
+            Giriş yap
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user.emailVerified) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-amber-200 shadow-sm p-6 text-center space-y-2">
+          <p className="text-sm font-semibold text-amber-900">E-posta doğrulanmadı</p>
+          <p className="text-xs text-amber-800/70">Yeni işlem oluşturma doğrulama tamamlanana kadar kısıtlıdır.</p>
+          <Link href="/settings" className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 text-[#111110] text-xs font-bold hover:bg-amber-500 transition">
+            Ayarlara git
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canCreateJob) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center space-y-2">
+          <p className="text-sm font-semibold text-gray-900">Yetkiniz yok</p>
+          <p className="text-xs text-gray-500">Yeni işlem oluşturma owner/manager/teknisyen rolünde mümkündür.</p>
+          <Link href="/vehicles" className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#111110] text-white text-xs font-bold hover:bg-gray-800 transition">
+            Araçlara dön
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

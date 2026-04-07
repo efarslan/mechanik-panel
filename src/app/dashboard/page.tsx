@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/useAuth";
 import { useBusiness } from "@/context/BusinessContext";
+import { useMembershipRole } from "@/lib/useMembershipRole";
 import {
   collection,
   documentId,
@@ -15,7 +16,8 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { sendEmailVerification } from "firebase/auth";
+import { db, auth } from "@/lib/firebase";
 import {
   ArrowUpRight,
   BadgeCheck,
@@ -75,7 +77,7 @@ function formatTrDate(value: DashboardJob["createdAt"]) {
   if (!value) return "-";
   const date = value instanceof Timestamp ? value.toDate()
     : value instanceof Date ? value
-    : typeof value === "string" ? new Date(value) : null;
+      : typeof value === "string" ? new Date(value) : null;
   if (!date || isNaN(date.getTime())) return "-";
   return date.toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
@@ -149,6 +151,7 @@ export default function Dashboard() {
   const user = useAuth();
   const { business, loading } = useBusiness();
   const router = useRouter();
+  const { role } = useMembershipRole();
 
   // ── All original state preserved exactly ──────────────────────────────────
   const [recentJobs, setRecentJobs] = useState<DashboardJob[]>([]);
@@ -161,13 +164,36 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<StatusKey>("active");
   const [showFilters, setShowFilters] = useState(false);
   const [activeJob, setActiveJob] = useState<JobListItem | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [reportJobs, setReportJobs] = useState<DashboardJob[]>([]);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
-  useEffect(() => { if (user === null) router.push("/login"); }, [user, router]);
-  useEffect(() => { if (!loading && !business) router.push("/onboarding"); }, [business, loading, router]);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
+
+  useEffect(() => { if (user === null) router.replace("/login"); }, [user, router]);
+  useEffect(() => {
+    // Logout aninda onboarding'e degil login'e yonlenmesi icin user varligini sart kos.
+    if (user && !loading && !business) router.replace("/onboarding");
+  }, [user, business, loading, router]);
+
+  const handleResendVerification = async () => {
+    if (!auth.currentUser) return;
+    setVerifyLoading(true);
+    setVerifyStatus(null);
+    try {
+      await sendEmailVerification(auth.currentUser);
+      setVerifyStatus("Doğrulama e-postası gönderildi.");
+      await auth.currentUser.reload();
+    } catch (e) {
+      console.error(e);
+      setVerifyStatus("Doğrulama e-postası gönderilemedi.");
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
 
   // ── fetchRecentJobs — original logic untouched ────────────────────────────
   const fetchRecentJobs = useCallback(async () => {
@@ -177,8 +203,6 @@ export default function Dashboard() {
     setIndexHint(null);
     try {
       const clauses: any[] = [where("businessId", "==", business.id)];
-      if (statusFilter === "active") clauses.push(where("status", "==", "active"));
-      if (statusFilter === "completed") clauses.push(where("status", "in", ["completed", "done"]));
 
       const snap = await getDocs(
         query(collection(db, "jobs"), ...clauses, orderBy("createdAt", "desc"), limit(60)),
@@ -227,15 +251,19 @@ export default function Dashboard() {
               notes: data.notes ?? null, category: data.category ?? null,
             };
           })
-          .filter((j) => j.businessId === business.id);
+          .filter((j) => {
+            if (j.businessId !== business.id) return false;
+            const s = (j.status ?? "").toLowerCase();
+            return s !== "cancelled" && s !== "canceled";
+          });
         setRecentJobs(list);
       } catch (e2) { console.error(e2); }
     } finally {
       setLoadingJobs(false);
     }
-  }, [business, statusFilter]);
+  }, [business]);
 
-  useEffect(() => { if (business) fetchRecentJobs(); }, [business, fetchRecentJobs]);
+  useEffect(() => { if (business) fetchRecentJobs(); }, [business]);
 
   // ── fetchReport — original logic untouched ────────────────────────────────
   const fetchReport = useCallback(async () => {
@@ -311,7 +339,11 @@ export default function Dashboard() {
   // ── Derived — original logic untouched ────────────────────────────────────
   const scopedJobs = useMemo(() => {
     if (!business) return [];
-    return recentJobs.filter((j) => j.businessId === business.id);
+    return recentJobs.filter((j) => {
+      if (j.businessId !== business.id) return false;
+      const s = (j.status ?? "").toLowerCase();
+      return s !== "cancelled" && s !== "canceled";
+    });
   }, [business, recentJobs]);
 
   const filteredJobs = useMemo(() => {
@@ -328,6 +360,22 @@ export default function Dashboard() {
     list.sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
     return list;
   }, [scopedJobs, search, statusFilter, vehiclesById]);
+
+  const PAGE_SIZE = 15;
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedJobs = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredJobs.slice(start, start + PAGE_SIZE);
+  }, [filteredJobs, safePage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   const kpis = useMemo(() => {
     const now = Date.now();
@@ -346,11 +394,31 @@ export default function Dashboard() {
 
   const alerts = useMemo(() => {
     const now = Date.now();
-    const active = scopedJobs.filter((j) => getStatusCfg(j.status).key === "active");
-    const stale = active.map((j) => ({ job: j, ageMs: now - toMs(j.createdAt) }))
-      .filter((x) => x.ageMs >= 7 * 86400000).sort((a, b) => b.ageMs - a.ageMs).slice(0, 6);
-    const missingPhone = active.filter((j) => { const v = j.vehicleId ? vehiclesById[j.vehicleId] : undefined; return !!v && !v.ownerPhone; }).slice(0, 6);
-    return { stale, missingPhone };
+    const active = scopedJobs.filter(
+      (j) => getStatusCfg(j.status).key === "active"
+    );
+
+    const stale = active
+      .map((j) => ({ job: j, ageMs: now - toMs(j.createdAt) }))
+      .filter((x) => x.ageMs >= 7 * 86400000)
+      .sort((a, b) => b.ageMs - a.ageMs)
+      .slice(0, 6);
+
+    const missingPhone = active
+      .filter((j) => {
+        const v = j.vehicleId ? vehiclesById[j.vehicleId] : undefined;
+        return !!v && !v.ownerPhone;
+      })
+      .slice(0, 6);
+
+    const zeroLabor = active
+      .filter((j) => {
+        const labor = Number(j.laborFee);
+        return !labor || labor <= 0;
+      })
+      .slice(0, 6);
+
+    return { stale, missingPhone, zeroLabor };
   }, [scopedJobs, vehiclesById]);
 
   const handleJobUpdated = (updated: JobListItem) => {
@@ -360,7 +428,7 @@ export default function Dashboard() {
 
   // ── reportSeries — original logic untouched ───────────────────────────────
   const reportSeries = useMemo(() => {
-    const days: { key: string; label: string; count: number; revenue: number }[] = [];
+    const days: { key: string; label: string; count: number; revenue: number; laborTotal?: number; partsTotal?: number }[] = [];
     const end = new Date();
     end.setHours(0, 0, 0, 0);
     for (let i = 29; i >= 0; i--) {
@@ -383,12 +451,16 @@ export default function Dashboard() {
       const labor = Number(j.laborFee) || 0;
       const parts = (j.selectedQuickJobs ?? []).reduce((sum, it: any) => sum + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
       bucket.revenue += labor + parts;
+      bucket["laborTotal"] = (bucket["laborTotal"] || 0) + labor;
+      bucket["partsTotal"] = (bucket["partsTotal"] || 0) + parts;
     }
     const maxCount = Math.max(1, ...days.map((d) => d.count));
     const maxRevenue = Math.max(1, ...days.map((d) => d.revenue));
     const totalRevenue = days.reduce((s, d) => s + d.revenue, 0);
+    const totalLabor = days.reduce((s, d: any) => s + (d.laborTotal || 0), 0);
+    const totalParts = days.reduce((s, d: any) => s + (d.partsTotal || 0), 0);
     const totalJobs = days.reduce((s, d) => s + d.count, 0);
-    return { days, maxCount, maxRevenue, totalRevenue, totalJobs };
+    return { days, maxCount, maxRevenue, totalRevenue, totalJobs, totalLabor, totalParts };
   }, [reportJobs]);
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -405,8 +477,8 @@ export default function Dashboard() {
 
   if (!business) return null;
 
-  const alertCount = alerts.stale.length + alerts.missingPhone.length;
-
+  const alertCount = alerts.stale.length + alerts.missingPhone.length + alerts.zeroLabor.length;
+  const canCreateVehicle = role === "owner" || role === "manager";
   // ── Recharts tick formatter ────────────────────────────────────────────────
   const tickEvery = Math.ceil(reportSeries.days.length / 6);
 
@@ -429,11 +501,13 @@ export default function Dashboard() {
               className="h-9 w-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition flex items-center justify-center" title="Yenile">
               <RotateCcw className={`w-4 h-4 ${loadingJobs ? "animate-spin" : ""}`} />
             </button>
-            <Link href="/vehicles/new"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-400 text-[#111110] hover:bg-amber-500 transition shadow-sm">
-              <Car className="w-3.5 h-3.5" />
-              Yeni Araç
-            </Link>
+            {canCreateVehicle && (
+              <Link href="/vehicles/new"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-400 text-[#111110] hover:bg-amber-500 transition shadow-sm">
+                <Car className="w-3.5 h-3.5" />
+                Yeni Araç
+              </Link>
+            )}
             <Link href="/vehicles"
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-[#111110] text-white hover:bg-gray-800 transition">
               Araçlar
@@ -441,6 +515,32 @@ export default function Dashboard() {
             </Link>
           </div>
         </header>
+
+        {/* Email verification banner */}
+        {user && !user.emailVerified && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-start justify-between gap-3 flex-col sm:flex-row sm:items-center">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-amber-900">E-posta doğrulanmadı</p>
+                <p className="text-[11px] text-amber-800/70 mt-1">
+                  Bazı yönetim işlemleri doğrulama tamamlanana kadar kısıtlıdır. Lütfen doğrulama
+                  e-postanızı kontrol edin.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={verifyLoading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 text-[#111110] px-4 py-2.5 text-xs font-bold hover:bg-amber-500 transition disabled:opacity-60"
+              >
+                {verifyLoading ? "Gönderiliyor..." : "Doğrulama mailini tekrar gönder"}
+              </button>
+            </div>
+            {verifyStatus && (
+              <p className="text-[11px] text-emerald-700 mt-2">{verifyStatus}</p>
+            )}
+          </div>
+        )}
 
         {/* ── KPI Strip ──────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -468,10 +568,10 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-400 mt-0.5">{filteredJobs.length} kayıt · Satıra tıklayarak detay açın</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button type="button" onClick={() => setShowFilters(v => !v)}
+                  {/* <button type="button" onClick={() => setShowFilters(v => !v)}
                     className={`h-8 w-8 rounded-xl border flex items-center justify-center transition ${showFilters ? "border-amber-300 bg-amber-50 text-amber-600" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
                     <Filter className="w-3.5 h-3.5" />
-                  </button>
+                  </button> */}
                   <div className="flex items-center gap-0.5 bg-gray-100 rounded-xl p-0.5">
                     {([{ key: "active" as const, label: "Aktif" }, { key: "completed" as const, label: "Tamam" }, { key: "all" as const, label: "Tümü" }]).map((t) => (
                       <button key={t.key} type="button" onClick={() => setStatusFilter(t.key)}
@@ -497,12 +597,12 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {showFilters && (indexHint || true) && (
+              {/* {showFilters && (indexHint || true) && (
                 <div className="mt-2.5 rounded-xl bg-gray-50 border border-gray-100 px-3 py-2.5 space-y-1.5">
                   {indexHint && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">{indexHint}</p>}
                   <p className="text-xs text-gray-400">Liste Firestore üzerinde işletme + durum filtresiyle çekilir. Arama istemci tarafında çalışır.</p>
                 </div>
-              )}
+              )} */}
             </div>
 
             {/* Rows */}
@@ -522,14 +622,16 @@ export default function Dashboard() {
                   <Link href="/vehicles" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#111110] text-white text-xs font-bold hover:bg-gray-800 transition">
                     Araçlara Git <ArrowUpRight className="w-3.5 h-3.5" />
                   </Link>
-                  <Link href="/vehicles/new" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition">
-                    Yeni Araç
-                  </Link>
+                  {canCreateVehicle && (
+                    <Link href="/vehicles/new" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition">
+                      Yeni Araç
+                    </Link>
+                  )}
                 </div>
               </div>
             ) : (
               <div className="divide-y divide-gray-50">
-                {filteredJobs.slice(0, 15).map((j) => {
+                {pagedJobs.map((j) => {
                   const v = j.vehicleId ? vehiclesById[j.vehicleId] : undefined;
                   const status = getStatusCfg(j.status);
                   const partsTotal = (j.selectedQuickJobs ?? []).reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
@@ -571,10 +673,29 @@ export default function Dashboard() {
               </div>
             )}
 
-            {filteredJobs.length > 15 && (
+            {filteredJobs.length > PAGE_SIZE && (
               <div className="px-5 sm:px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-                <p className="text-xs text-gray-400">İlk 15 kayıt</p>
-                <Link href="/vehicles" className="text-xs font-semibold text-amber-600 hover:text-amber-700 transition">Tümünü gör →</Link>
+                <p className="text-xs text-gray-400">
+                  Sayfa {safePage}/{totalPages} · Toplam {filteredJobs.length} kayıt
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    className="h-7 px-2.5 rounded-lg border border-gray-200 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Önceki
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    className="h-7 px-2.5 rounded-lg border border-gray-200 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Sonraki
+                  </button>
+                </div>
               </div>
             )}
 
@@ -614,7 +735,7 @@ export default function Dashboard() {
                           <Clock4 className="w-3.5 h-3.5 text-rose-600" />
                           <span className="text-xs font-bold text-rose-800">7+ gün açık ({alerts.stale.length})</span>
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                           {alerts.stale.map(({ job, ageMs }) => {
                             const v = job.vehicleId ? vehiclesById[job.vehicleId] : undefined;
                             return (
@@ -637,7 +758,7 @@ export default function Dashboard() {
                           <CircleAlert className="w-3.5 h-3.5 text-amber-600" />
                           <span className="text-xs font-bold text-amber-900">Telefon eksik ({alerts.missingPhone.length})</span>
                         </div>
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                           {alerts.missingPhone.map((job) => {
                             const v = job.vehicleId ? vehiclesById[job.vehicleId] : undefined;
                             return (
@@ -646,6 +767,41 @@ export default function Dashboard() {
                                 <div className="min-w-0">
                                   <p className="text-xs font-semibold text-gray-800 truncate">{v?.plate ?? "Araç"}</p>
                                   <p className="text-[10px] text-gray-400">{v?.ownerName ?? "—"}</p>
+                                </div>
+                                <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover/a:text-gray-500 shrink-0 transition" />
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {alerts.zeroLabor.length > 0 && (
+                      <div className="rounded-xl bg-purple-50 border border-purple-100 p-3">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <TrendingUp className="w-3.5 h-3.5 text-purple-600" />
+                          <span className="text-xs font-bold text-purple-900">
+                            İşçilik Ücreti Eksik Olabilir ({alerts.zeroLabor.length})
+                          </span>
+                        </div>
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                          {alerts.zeroLabor.map((job) => {
+                            const v = job.vehicleId
+                              ? vehiclesById[job.vehicleId]
+                              : undefined;
+
+                            return (
+                              <Link
+                                key={job.id}
+                                href={job.vehicleId ? `/vehicles/${job.vehicleId}` : "/vehicles"}
+                                className="flex items-center justify-between gap-2 rounded-lg bg-white/80 hover:bg-white px-2.5 py-2 transition group/a"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold text-gray-800 truncate">
+                                    {job.title}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {v?.plate ?? "—"} · İşçilik: 0 ₺
+                                  </p>
                                 </div>
                                 <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover/a:text-gray-500 shrink-0 transition" />
                               </Link>
@@ -720,7 +876,7 @@ export default function Dashboard() {
 
           <div className="p-5 sm:p-6">
             {/* Summary KPIs */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
               <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 border border-emerald-100 p-4">
                 <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Toplam İş</p>
                 <p className="text-2xl font-bold text-emerald-800 tabular-nums mt-1">{reportSeries.totalJobs}</p>
@@ -730,6 +886,13 @@ export default function Dashboard() {
                 <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Tahmini Ciro</p>
                 <p className="text-xl font-bold text-amber-800 tabular-nums mt-1">{formatTry(reportSeries.totalRevenue)}</p>
                 <p className="text-[11px] text-amber-600 mt-0.5">Son 30 gün</p>
+              </div>
+              <div className="rounded-xl bg-gradient-to-br from-orange-50 to-orange-100/50 border border-orange-100 p-4">
+                <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">Toplam İşçilik / Parça</p>
+                <p className="text-sm font-bold text-orange-800 tabular-nums mt-1">
+                  {formatTry(reportSeries.totalLabor)} / {formatTry(reportSeries.totalParts)}
+                </p>
+                <p className="text-[11px] text-orange-600 mt-0.5">Son 30 gün</p>
               </div>
               <div className="rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-100 p-4">
                 <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Günlük Ort. İş</p>

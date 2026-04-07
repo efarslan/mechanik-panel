@@ -9,6 +9,8 @@ import { collection, addDoc, serverTimestamp, getDocs } from "firebase/firestore
 import BrandSelect from "@/components/BrandSelect";
 import ModelSelect from "@/components/ModelSelect";
 import FuelTypeSelect from "@/components/FuelTypeSelect";
+import { useAuth } from "@/lib/useAuth";
+import { useMembershipRole } from "@/lib/useMembershipRole";
 
 type FuelType = "gasoline" | "diesel" | "lpg" | "electric" | "hybrid";
 
@@ -63,6 +65,8 @@ function FieldError({ msg }: { msg?: string }) {
 export default function NewVehiclePage() {
   const { business, loading } = useBusiness();
   const router = useRouter();
+  const user = useAuth();
+  const { role, loading: roleLoading } = useMembershipRole();
 
   const [plate, setPlate] = useState("");
   const [brand, setBrand] = useState("");
@@ -81,8 +85,13 @@ export default function NewVehiclePage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  const canAddVehicle = role === "owner" || role === "manager";
+
   useEffect(() => {
     const fetchBrands = async () => {
+      if (user === undefined || roleLoading) return;
+      if (!user || !user.emailVerified || !canAddVehicle) return;
+
       const snapshot = await getDocs(collection(db, "brands"));
       const list: Brand[] = snapshot.docs.map((doc) => {
         const d = doc.data();
@@ -91,7 +100,7 @@ export default function NewVehiclePage() {
       setBrands(list.sort((a, b) => a.name.localeCompare(b.name)));
     };
     fetchBrands();
-  }, []);
+  }, [user, roleLoading, canAddVehicle]);
 
   useEffect(() => {
     const fetchModels = async () => {
@@ -216,6 +225,68 @@ export default function NewVehiclePage() {
     return (
       <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center">
         <p className="text-gray-500 text-sm">İşletme bulunamadı.</p>
+      </div>
+    );
+  }
+
+  // Auth & role guard (hook'lar bittikten sonra render seviyesinde)
+  if (user === undefined || roleLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-9 h-9 border-[3px] border-gray-200 border-t-amber-400 rounded-full animate-spin" />
+          <p className="text-sm text-gray-400 font-medium">Yükleniyor...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center space-y-2">
+          <p className="text-sm font-semibold text-gray-900">Giriş gerekli</p>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#111110] text-white text-xs font-bold hover:bg-gray-800 transition"
+          >
+            Giriş yap
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user.emailVerified) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-amber-200 shadow-sm p-6 text-center space-y-3">
+          <p className="text-sm font-semibold text-amber-900">E-posta doğrulanmadı</p>
+          <p className="text-xs text-amber-800/70">Yeni araç oluşturma doğrulama tamamlanana kadar kısıtlıdır.</p>
+          <Link
+            href="/settings"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 text-[#111110] text-xs font-bold hover:bg-amber-500 transition"
+          >
+            Ayarlara git
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canAddVehicle) {
+    return (
+      <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center space-y-3">
+          <p className="text-sm font-semibold text-gray-900">Yetkiniz yok</p>
+          <p className="text-xs text-gray-500">Yeni araç ekleme sadece owner/manager rolünde yapılabilir.</p>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#111110] text-white text-xs font-bold hover:bg-gray-800 transition"
+          >
+            Panele dön
+          </Link>
+        </div>
       </div>
     );
   }
@@ -350,7 +421,7 @@ export default function NewVehiclePage() {
                       }
 
                       // Keep only digits
-                      let digits = raw.replace(/\D/g, "").slice(0, 3);
+                      const digits = raw.replace(/\D/g, "").slice(0, 3);
 
                       if (!digits) {
                         setEngineSize("");

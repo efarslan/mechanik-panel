@@ -1,18 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/lib/useAuth";
 import { useRouter } from "next/navigation";
+import { useBusiness } from "@/context/BusinessContext";
+import { signOut } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
 
 export default function Onboarding() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const user = useAuth();
+  const { business, loading } = useBusiness();
   const router = useRouter();
+
+  useEffect(() => {
+    if (user === undefined || loading) return;
+
+    if (user === null) {
+      router.replace("/login");
+      return;
+    }
+
+    if (business === undefined) return;
+
+    if (business) {
+      router.replace("/dashboard");
+    }
+  }, [user, loading, business, router]);
 
   const createBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,12 +44,21 @@ export default function Onboarding() {
 
     setSaving(true);
     try {
-      await addDoc(collection(db, "businesses"), {
+      const newBusinessRef = await addDoc(collection(db, "businesses"), {
         name: name.trim(),
         ownerId: user.uid,
         createdAt: serverTimestamp(),
       });
-      router.push("/dashboard");
+      // Owner icin otomatik member kaydi olustur.
+      await setDoc(doc(db, "businesses", newBusinessRef.id, "members", user.uid), {
+        userId: user.uid,
+        role: "owner",
+        status: "active",
+        email: user.email ?? null,
+        createdAt: serverTimestamp(),
+      });
+      router.replace("/dashboard");
+      router.refresh();
     } catch (err) {
       setError("Oluşturulurken hata oluştu.");
     } finally {
@@ -65,12 +93,20 @@ export default function Onboarding() {
             <p className="text-sm text-red-600">{error}</p>
           )}
           <div className="flex gap-3">
-            <Link
-              href="/login"
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await signOut(auth);
+                  router.replace("/login");
+                } catch (err) {
+                  setError("Çıkış yapılırken hata oluştu.");
+                }
+              }}
               className="flex-1 text-center py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50"
             >
               İptal
-            </Link>
+            </button>
             <button
               type="submit"
               disabled={saving}

@@ -13,6 +13,13 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
+  collectionGroup,
+  deleteDoc,
+  doc,
+  setDoc,
+  limit,
+  serverTimestamp,
 } from "firebase/firestore";
 
 type Business = {
@@ -24,6 +31,12 @@ type Business = {
 type BusinessContextType = {
   business: Business | null;
   loading: boolean;
+};
+
+type InviteData = {
+  email?: string;
+  role?: string;
+  status?: string;
 };
 
 const BusinessContext = createContext<BusinessContextType>({
@@ -42,7 +55,11 @@ export function BusinessProvider({
 
   useEffect(() => {
     const fetchBusiness = async () => {
-      if (!user) {
+      // user henüz yüklenmediyse hiçbir şey yapma
+      if (user === undefined) return;
+
+      // user yoksa (login değilse)
+      if (user === null) {
         setBusiness(null);
         setLoading(false);
         return;
@@ -50,19 +67,91 @@ export function BusinessProvider({
 
       setLoading(true);
 
-      const q = query(
-        collection(db, "businesses"),
-        where("ownerId", "==", user.uid)
+      // 1) Invite'i varsa otomatik accept et
+      try {
+        if (user.email) {
+          const emailLower = user.email.toLowerCase();
+          const invitesSnap = await getDocs(
+            query(
+              collectionGroup(db, "invites"),
+              where("email", "==", emailLower),
+              where("status", "==", "invited"),
+              limit(5),
+            ),
+          );
+
+          await Promise.all(
+            invitesSnap.docs.map(async (invDoc) => {
+              const inviteData = invDoc.data() as InviteData;
+              const businessId = invDoc.ref.parent.parent?.id;
+              if (!businessId) return;
+
+              await Promise.all([
+                // create member
+                (async () => {
+                  const role = inviteData.role ?? "viewer";
+                  await setDoc(
+                    doc(db, "businesses", businessId, "members", user.uid),
+                    {
+                      userId: user.uid,
+                      role,
+                      status: "active",
+                      email: user.email ?? null,
+                      createdAt: serverTimestamp(),
+                    },
+                    { merge: true },
+                  );
+                })(),
+                // delete invite
+                deleteDoc(invDoc.ref),
+              ]);
+            }),
+          );
+        }
+      } catch {
+        // invite kabul edilemese bile business aramaya devam ediyoruz
+      }
+
+      // 2) Owner ise hızlıca getir
+      const ownedSnap = await getDocs(
+        query(collection(db, "businesses"), where("ownerId", "==", user.uid), limit(3)),
       );
 
-      const snapshot = await getDocs(q);
-
-      if (!snapshot.empty) {
-        const docSnap = snapshot.docs[0];
+      if (!ownedSnap.empty) {
+        const docSnap = ownedSnap.docs[0];
         setBusiness({
           id: docSnap.id,
           ...(docSnap.data() as Omit<Business, "id">),
         });
+        setLoading(false);
+        return;
+      }
+
+      // 3) Member ise members tablosundan business'i bul
+      const membersSnap = await getDocs(
+        query(
+          collectionGroup(db, "members"),
+          where("userId", "==", user.uid),
+          where("status", "==", "active"),
+          limit(3),
+        ),
+      );
+
+      if (!membersSnap.empty) {
+        const businessId = membersSnap.docs[0].ref.parent.parent?.id;
+        if (businessId) {
+          const bSnap = await getDoc(doc(db, "businesses", businessId));
+          if (bSnap.exists()) {
+            setBusiness({
+              id: bSnap.id,
+              ...(bSnap.data() as Omit<Business, "id">),
+            });
+          } else {
+            setBusiness(null);
+          }
+        } else {
+          setBusiness(null);
+        }
       } else {
         setBusiness(null);
       }

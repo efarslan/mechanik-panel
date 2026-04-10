@@ -55,7 +55,7 @@ Then open:
 http://localhost:3000
 ---
 ## 📸 Screenshots
-> All screenshots are located in `/public/Screenshots`
+> All screenshots are located in `/public/screenshots`
 ### 📊 Dashboard
 ![Dashboard](public/screenshots/dashboard.png)
 

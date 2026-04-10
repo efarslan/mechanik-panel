@@ -304,7 +304,7 @@ export default function NewJobPage() {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <SectionHeader
               step={2}
-              title="Parça / İş Kalemleri"
+              title="Parça / İşlemler"
               subtitle="Kategori seçerek hızlı ekleyin veya elle girin"
             />
 
@@ -381,16 +381,12 @@ export default function NewJobPage() {
                       <div key={index} className="px-4 py-3 space-y-2">
                         {/* Name row — editable if manually added (empty name) */}
                         <div className="flex items-center justify-between gap-2">
-                          {job.name ? (
-                            <span className="text-xs font-semibold text-gray-900">{job.name}</span>
-                          ) : (
-                            <input
-                              placeholder="İşlem adı *"
-                              value={job.name}
-                              onChange={(e) => updateQuickJob(index, "name", e.target.value)}
-                              className="flex-1 border border-amber-200 bg-amber-50/50 rounded-lg px-2.5 py-1.5 text-xs font-semibold placeholder-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400"
-                            />
-                          )}
+                          <input
+                            placeholder="İşlem adı *"
+                            value={job.name}
+                            onChange={(e) => updateQuickJob(index, "name", e.target.value)}
+                            className="flex-1 border border-amber-200 bg-amber-50/50 rounded-lg px-2.5 py-1.5 text-xs font-semibold placeholder-amber-300 focus:outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400"
+                          />
                           <button
                             type="button"
                             onClick={() => removeQuickJob(index)}
@@ -414,9 +410,14 @@ export default function NewJobPage() {
                             className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-amber-300 w-full"
                           />
                           <input
-                            type="number" min={0}
-                            value={job.unitPrice}
-                            onChange={(e) => updateQuickJob(index, "unitPrice", Number(e.target.value))}
+                            type="number"
+                            min={0}
+                            placeholder="0"
+                            value={job.unitPrice === 0 ? "" : job.unitPrice}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              updateQuickJob(index, "unitPrice", v === "" ? 0 : Number(v));
+                            }}
                             className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-amber-300 w-full"
                           />
                           <span className="text-xs text-right font-semibold text-gray-800 tabular-nums">
@@ -474,7 +475,7 @@ export default function NewJobPage() {
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              Kalem Ekle
+              Ekle
             </button>
           </div>
 

@@ -237,6 +237,11 @@ export default function JobDetailModal({
                 <span className={`w-2 h-2 rounded-full shrink-0 ${statusConfig.dot} ${isActive ? "animate-pulse" : ""}`} />
                 <h2 className="text-sm font-semibold text-gray-900 truncate">{job.title}</h2>
               </div>
+              {job.id && (
+                <div className="text-[11px] text-gray-400 pl-4">
+                  İşlem ID: {job.id}
+                </div>
+              )}
               <div className="text-[11px] text-gray-400 space-x-2 pl-4">
                 {job.createdAt && <span>Oluşturuldu: {formatTrDate(job.createdAt)}</span>}
                 {job.updatedAt && <span>· Güncellendi: {formatTrDate(job.updatedAt)}</span>}
@@ -394,7 +399,7 @@ export default function JobDetailModal({
           {/* Line items (readonly) — shown when there are items OR a laborFee */}
           {(items.length > 0 || laborFee > 0) && (
             <section className="space-y-2">
-              <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Parça / İş Kalemleri</h3>
+              <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Parça / İş</h3>
               <div className="border border-gray-200 rounded-xl overflow-hidden">
 
                 {/* Table header — only if there are part rows */}
@@ -510,13 +515,13 @@ export default function JobDetailModal({
                 {/* Editable items */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Parça / İş Kalemleri</label>
+                    <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Parça / İşlem</label>
                     <button
                       type="button"
                       onClick={() => setItems((prev) => [...prev, { name: "", brand: "", quantity: 1, unitPrice: 0 }])}
                       className="text-[11px] font-semibold text-yellow-700 hover:text-yellow-800 flex items-center gap-1"
                     >
-                      <span className="text-base leading-none">+</span> Kalem Ekle
+                      <span className="text-base leading-none">+</span> Ekle
                     </button>
                   </div>
                   {items.length > 0 ? (
@@ -580,7 +585,7 @@ export default function JobDetailModal({
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-400 italic">Henüz kalem eklenmedi.</p>
+                    <p className="text-xs text-gray-400 italic">Henüz İşlem eklenmedi.</p>
                   )}
                 </div>
 

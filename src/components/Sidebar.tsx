@@ -60,13 +60,13 @@ export default function Sidebar() {
             <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center shrink-0">
               <Image
                 src="/logo.jpeg"
-                alt="Servis Panel logo"
+                alt="Mechanik Dashboard logo"
                 width={24}
                 height={24}
               />
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-white tracking-widest uppercase leading-none">Servis Panel</p>
+              <p className="text-[11px] font-bold text-white tracking-widest uppercase leading-none">Mechanik Panel</p>
               {business && (
                 <p className="text-[10px] text-white/40 mt-0.5 truncate font-medium">{business.name}</p>
               )}

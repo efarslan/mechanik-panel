@@ -87,12 +87,22 @@ function formatTry(amount: number) {
 }
 
 function relativeTime(ms: number): string {
+  if (!ms) return "-";
+
   const diff = Date.now() - ms;
-  const days = Math.floor(diff / 86400000);
+
+  if (diff < 0) return "şimdi";
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
-  if (days > 0) return `${days}g önce`;
-  if (hours > 0) return `${hours}sa önce`;
-  return "Az önce";
+  const days = Math.floor(diff / 86400000);
+
+  if (seconds < 10) return "şimdi";
+  if (seconds < 60) return `${seconds} sn önce`;
+  if (minutes < 60) return `${minutes} dk önce`;
+  if (hours < 24) return `${hours} sa önce`;
+  return `${days} g önce`;
 }
 
 function getStatusCfg(status?: string | null) {

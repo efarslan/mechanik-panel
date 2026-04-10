@@ -416,11 +416,11 @@ export default function VehicleDetailPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-[#111110] tracking-tight leading-tight">
-                      {vehicle.brand} {vehicle.model}
+                      {vehicle.plate}
                     </h1>
                     <div className="flex flex-wrap items-center gap-2 mt-2">
                       <span className="inline-flex items-center px-3 py-1 rounded-lg bg-[#111110] text-white text-sm font-bold tracking-widest font-mono">
-                        {vehicle.plate}
+                        {vehicle.brand} {vehicle.model}
                       </span>
                       <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-lg font-medium">{vehicle.year}</span>
                       {vehicle.engineSize && <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-lg font-medium">{vehicle.engineSize}</span>}
@@ -662,7 +662,7 @@ export default function VehicleDetailPage() {
                           {job.mileage != null && !isNaN(job.mileage) && (
                             <span className="text-[11px] text-gray-400">· {job.mileage.toLocaleString("tr-TR")} km</span>
                           )}
-                          {itemCount > 0 && <span className="text-[11px] text-gray-400">· {itemCount} kalem</span>}
+                          {itemCount > 0 && <span className="text-[11px] text-gray-400">· {itemCount} İşlem </span>}
                         </div>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">

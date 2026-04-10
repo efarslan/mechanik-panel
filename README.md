@@ -83,30 +83,30 @@ http://localhost:3000
 
 ## 📸 Screenshots
 
-> All screenshots are located in `/public/screenshots`
+> All screenshots are located in `/public/Screenshots`
 
 ### 📊 Dashboard
-![Dashboard](/screenshots/dashboard.png)
+![Dashboard](/Screenshots/dashboard.png)
 
 ---
 
 ### 🆕 New Job Creation
-![New Job](/screenshots/new-job.png)
+![New Job](/Screenshots/new-job.png)
 
 ---
 
 ### 🔧 Job Details
-![Job Details](/screenshots/job-details.png)
+![Job Details](/Screenshots/job-details.png)
 
 ---
 
 ### 🚗 Vehicle Details
-![Vehicle Details](/screenshots/vehicle-details.png)
+![Vehicle Details](/Screenshots/vehicle-details.png)
 
 ---
 
 ### 📈 Analytics
-![Analytics](/screenshots/analytics.png)
+![Analytics](/Screenshots/analytics.png)
 
 ---
 

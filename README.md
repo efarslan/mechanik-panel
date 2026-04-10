@@ -57,19 +57,19 @@ http://localhost:3000
 ## 📸 Screenshots
 > All screenshots are located in `/public/screenshots`
 ### 📊 Dashboard
-![Dashboard](public/screenshots/dashboard.png)
+![Dashboard](https://raw.githubusercontent.com/efarslan/mechanik-panel/main/public/screenshots/dashboard.png)
 
 ### 🆕 New Job Creation
-![New Job](public/screenshots/new-job.png)
+![New Job](https://raw.githubusercontent.com/efarslan/mechanik-panel/main/public/screenshots/new-job.png)
 
 ### 🔧 Job Details
-![Job Details](public/screenshots/job-details.png)
+![Job Details](https://raw.githubusercontent.com/efarslan/mechanik-panel/main/public/screenshots/job-details.png)
 
 ### 🚗 Vehicle Details
-![Vehicle Details](public/screenshots/vehicle-details.png)
+![Vehicle Details](https://raw.githubusercontent.com/efarslan/mechanik-panel/main/public/screenshots/vehicle-details.png)
 
 ### 📈 Analytics
-![Analytics](public/screenshots/analytics.png)
+![Analytics](https://raw.githubusercontent.com/efarslan/mechanik-panel/main/public/screenshots/analytics.png)
 ---
 ## 🤖 AI Usage
 AI tools were used as a development assistant for productivity and debugging support.

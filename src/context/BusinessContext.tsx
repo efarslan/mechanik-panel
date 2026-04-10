@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useCallback,
 } from "react";
 import { useAuth } from "@/lib/useAuth";
 import { db } from "@/lib/firebase";
@@ -26,11 +27,14 @@ type Business = {
   id: string;
   name: string;
   ownerId: string;
+  inviteCode: string;
+
 };
 
 type BusinessContextType = {
   business: Business | null;
   loading: boolean;
+  refreshBusiness: () => void;
 };
 
 type InviteData = {
@@ -42,6 +46,7 @@ type InviteData = {
 const BusinessContext = createContext<BusinessContextType>({
   business: null,
   loading: true,
+  refreshBusiness: () => {},
 });
 
 export function BusinessProvider({
@@ -52,6 +57,10 @@ export function BusinessProvider({
   const user = useAuth();
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refreshBusiness = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     const fetchBusiness = async () => {
@@ -98,6 +107,7 @@ export function BusinessProvider({
                       status: "active",
                       email: user.email ?? null,
                       createdAt: serverTimestamp(),
+                      updatedAt: serverTimestamp(),
                     },
                     { merge: true },
                   );
@@ -160,10 +170,10 @@ export function BusinessProvider({
     };
 
     fetchBusiness();
-  }, [user]);
+  }, [user, refreshKey]);
 
   return (
-    <BusinessContext.Provider value={{ business, loading }}>
+    <BusinessContext.Provider value={{ business, loading, refreshBusiness }}>
       {children}
     </BusinessContext.Provider>
   );

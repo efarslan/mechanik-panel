@@ -1,32 +1,36 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   createUserWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
   signInWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { getDownloadURL, getStorage, ref } from "firebase/storage";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/useAuth";
-import { useBusiness } from "@/context/BusinessContext";
-import { Eye, EyeOff, ArrowRight, Zap, Shield, BarChart3 } from "lucide-react";
+import { Eye, EyeOff, ArrowRight } from "lucide-react";
 import "./login.css";
 
-type AuthMode = "signin" | "signup";
+type AuthMode = "signin" | "owner";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HERO_STORAGE_PATH = "ui/login-hero.jpg";
 
+function getFirebaseAuthCode(err: unknown): string {
+  return typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as { code?: unknown }).code === "string"
+    ? ((err as { code: string }).code)
+    : "";
+}
+
 function getFirebaseAuthError(err: unknown, mode: AuthMode): string {
-  const code =
-    typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      typeof (err as any).code === "string"
-      ? (err as any).code
-      : "";
+  const code = getFirebaseAuthCode(err);
 
   switch (code) {
     case "auth/invalid-email":
@@ -52,26 +56,6 @@ function getFirebaseAuthError(err: unknown, mode: AuthMode): string {
   }
 }
 
-const featureCards = [
-  {
-    icon: Zap,
-    title: "Akıllı İş Takibi",
-    desc: "Araç bazlı işleri, durumları ve notları tek ekranda yönetin.",
-    theme: "amber",
-  },
-  {
-    icon: BarChart3,
-    title: "Anlık Dashboard",
-    desc: "Aktif işler, ciro ve operasyonel uyarıları anında görün.",
-    theme: "emerald",
-  },
-  {
-    icon: Shield,
-    title: "Güvenli Erişim",
-    desc: "Müşteri ve araç kayıtlarına birkaç tıkla güvenle ulaşın.",
-    theme: "indigo",
-  },
-] as const;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -85,18 +69,13 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [heroImageUrl, setHeroImageUrl] = useState<string | null>(null);
-  const [featureIndex, setFeatureIndex] = useState(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animFrameRef = useRef<number>(0);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState("");
+  const [forgotSuccess, setForgotSuccess] = useState("");
 
-  const user = useAuth();
-  const { business, loading: businessLoading } = useBusiness();
-
-  useEffect(() => {
-    if (!user) return;
-    if (businessLoading) return;
-    router.replace(business ? "/dashboard" : "/onboarding");
-  }, [user, business, businessLoading, router]);
+  useAuth();
 
   useEffect(() => {
     const loadHero = async () => {
@@ -111,94 +90,13 @@ export default function LoginPage() {
     loadHero();
   }, []);
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      setFeatureIndex((prev) => (prev + 1) % featureCards.length);
-    }, 3500);
-    return () => clearInterval(id);
-  }, []);
 
-  // Particle canvas animation
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let w = (canvas.width = canvas.offsetWidth);
-    let h = (canvas.height = canvas.offsetHeight);
-
-    const resize = () => {
-      w = canvas.width = canvas.offsetWidth;
-      h = canvas.height = canvas.offsetHeight;
-    };
-    window.addEventListener("resize", resize);
-
-    const particles: {
-      x: number; y: number; r: number;
-      vx: number; vy: number; alpha: number; color: string;
-    }[] = [];
-
-    const colors = ["#f59e0b", "#10b981", "#6366f1", "#f97316"];
-
-    for (let i = 0; i < 55; i++) {
-      particles.push({
-        x: Math.random() * w,
-        y: Math.random() * h,
-        r: Math.random() * 2.5 + 0.5,
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: (Math.random() - 0.5) * 0.4,
-        alpha: Math.random() * 0.5 + 0.1,
-        color: colors[Math.floor(Math.random() * colors.length)],
-      });
-    }
-
-    const draw = () => {
-      ctx.clearRect(0, 0, w, h);
-      particles.forEach((p) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < 0) p.x = w;
-        if (p.x > w) p.x = 0;
-        if (p.y < 0) p.y = h;
-        if (p.y > h) p.y = 0;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.alpha;
-        ctx.fill();
-      });
-      // Draw connections
-      ctx.globalAlpha = 1;
-      for (let i = 0; i < particles.length; i++) {
-        for (let j = i + 1; j < particles.length; j++) {
-          const dx = particles[i].x - particles[j].x;
-          const dy = particles[i].y - particles[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 100) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(255,255,255,${0.06 * (1 - dist / 100)})`;
-            ctx.lineWidth = 0.5;
-            ctx.moveTo(particles[i].x, particles[i].y);
-            ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.stroke();
-          }
-        }
-      }
-      animFrameRef.current = requestAnimationFrame(draw);
-    };
-    draw();
-    return () => {
-      cancelAnimationFrame(animFrameRef.current);
-      window.removeEventListener("resize", resize);
-    };
-  }, []);
 
   const validateForm = () => {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !password) return "E-posta ve şifre zorunludur.";
     if (!emailRegex.test(cleanEmail)) return "Geçerli bir e-posta adresi girin.";
-    if (mode === "signup") {
+    if (mode === "owner") {
       if (password.length < 8) return "Şifre en az 8 karakter olmalıdır.";
       if (!/[A-Z]/.test(password)) return "Şifre en az bir büyük harf içermelidir.";
       if (!/[0-9]/.test(password)) return "Şifre en az bir rakam içermelidir.";
@@ -219,16 +117,38 @@ export default function LoginPage() {
       if (mode === "signin") {
         await signInWithEmailAndPassword(auth, cleanEmail, password);
         router.replace("/dashboard");
-      } else {
+      } else if (mode === "owner") {
         await createUserWithEmailAndPassword(auth, cleanEmail, password);
         if (auth.currentUser) {
           await sendEmailVerification(auth.currentUser);
         }
         setSuccess("Hesap oluşturuldu. E-posta doğrulama e-postası gönderildi. Yönlendiriliyorsunuz...");
-        router.replace("/onboarding");
+        router.replace("/settings");
       }
     } catch (err: unknown) {
-      setError(getFirebaseAuthError(err, mode));
+      if (mode === "signin") {
+        const code = getFirebaseAuthCode(err);
+        if (
+          code === "auth/user-not-found" ||
+          code === "auth/wrong-password" ||
+          code === "auth/invalid-credential"
+        ) {
+          try {
+            const methods = await fetchSignInMethodsForEmail(auth, cleanEmail);
+            if (methods.length === 0) {
+              setError("Böyle bir kullanıcı bulunamadı.");
+            } else {
+              setError("E-posta veya şifre hatalı.");
+            }
+          } catch {
+            setError("E-posta veya şifre hatalı.");
+          }
+        } else {
+          setError(getFirebaseAuthError(err, mode));
+        }
+      } else {
+        setError(getFirebaseAuthError(err, mode));
+      }
     } finally {
       setLoadingSubmit(false);
     }
@@ -241,21 +161,63 @@ export default function LoginPage() {
     setSuccess("");
   };
 
-  const ActiveFeature = featureCards[featureIndex];
+  const openForgotPasswordModal = () => {
+    setForgotOpen(true);
+    setForgotError("");
+    setForgotSuccess("");
+    setForgotEmail(email.trim());
+  };
+
+  const closeForgotPasswordModal = () => {
+    setForgotOpen(false);
+    setForgotLoading(false);
+    setForgotError("");
+    setForgotSuccess("");
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError("");
+    setForgotSuccess("");
+    const cleanEmail = forgotEmail.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      setForgotError("E-posta adresi zorunludur.");
+      return;
+    }
+    if (!emailRegex.test(cleanEmail)) {
+      setForgotError("Geçerli bir e-posta adresi girin.");
+      return;
+    }
+
+    try {
+      setForgotLoading(true);
+      await sendPasswordResetEmail(auth, cleanEmail);
+      setForgotSuccess("Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.");
+    } catch (err: unknown) {
+      setForgotError(getFirebaseAuthError(err, "signin"));
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
 
   return (
-    <div className="lp-root">
+    <div
+      className="lp-root"
+      style={{
+        backgroundImage: "url('/background.png')",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+      }}
+    >
       <div className="lp-bg-glow" />
-      <canvas ref={canvasRef} className="lp-canvas" />
 
       <div className="lp-card">
         <div className="lp-left">
           <div className="lp-logo-row">
-            <div className="lp-logo-icon">🔧</div>
-            <div>
-              <div className="lp-logo-name">ServisPanel</div>
-              <div className="lp-logo-sub">Operasyon yönetim sistemi</div>
-            </div>
+            <img src="/logo.jpeg" alt="Logo" className="lp-logo-icon" />
           </div>
 
           <div>
@@ -278,10 +240,19 @@ export default function LoginPage() {
           </div>
 
           <div className="lp-tabs">
-            <button type="button" className={`lp-tab ${mode === "signin" ? "active" : ""}`} onClick={() => switchMode("signin")}>
+            <button
+              type="button"
+              className={`lp-tab ${mode === "signin" ? "active" : ""}`}
+              onClick={() => switchMode("signin")}
+            >
               Giriş Yap
             </button>
-            <button type="button" className={`lp-tab ${mode === "signup" ? "active" : ""}`} onClick={() => switchMode("signup")}>
+
+            <button
+              type="button"
+              className={`lp-tab ${mode === "owner" ? "active" : ""}`}
+              onClick={() => switchMode("owner")}
+            >
               Kayıt Ol
             </button>
           </div>
@@ -314,29 +285,40 @@ export default function LoginPage() {
                   {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
-              {mode === "signup" && (
+              {mode === "signin" && (
+                <button
+                  type="button"
+                  className="lp-forgot-password"
+                  onClick={openForgotPasswordModal}
+                >
+                  Şifremi unuttum
+                </button>
+              )}
+              {mode === "owner" && (
                 <p className="lp-hint">En az 8 karakter, 1 büyük harf ve 1 rakam kullanın.</p>
               )}
             </div>
 
-            <div className={`lp-confirm-wrap ${mode === "signup" ? "open" : ""}`} aria-hidden={mode !== "signup"}>
-              <div className="lp-form-group">
-                <label className="lp-label">Şifre Tekrar</label>
-                <div className="lp-input-wrap">
-                  <input
-                    type={showConfirmPassword ? "text" : "password"}
-                    autoComplete="new-password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="lp-input has-icon"
-                    placeholder="••••••••"
-                  />
-                  <button type="button" className="lp-eye-btn" onClick={() => setShowConfirmPassword((v) => !v)} aria-label="Şifreyi göster/gizle">
-                    {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+            {mode === "owner" && (
+              <div className={`lp-confirm-wrap ${mode === "owner" ? "open" : ""}`} aria-hidden={mode !== "owner"}>
+                <div className="lp-form-group">
+                  <label className="lp-label">Şifre Tekrar</label>
+                  <div className="lp-input-wrap">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="lp-input has-icon"
+                      placeholder="••••••••"
+                    />
+                    <button type="button" className="lp-eye-btn" onClick={() => setShowConfirmPassword((v) => !v)} aria-label="Şifreyi göster/gizle">
+                      {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {error && <div className="lp-error">{error}</div>}
             {success && <div className="lp-success">{success}</div>}
@@ -345,11 +327,15 @@ export default function LoginPage() {
               {loadingSubmit ? (
                 <>
                   <div className="lp-submit-spinner" />
-                  {mode === "signin" ? "Giriş yapılıyor..." : "Kayıt oluşturuluyor..."}
+                  {mode === "signin"
+                    ? "Giriş yapılıyor..."
+                    : "Hesap oluşturuluyor..."}
                 </>
               ) : (
                 <>
-                  {mode === "signin" ? "Giriş Yap" : "Hesap Oluştur"}
+                  {mode === "signin"
+                    ? "Giriş Yap"
+                    : "Hesap Oluştur"}
                   <ArrowRight size={16} />
                 </>
               )}
@@ -373,45 +359,53 @@ export default function LoginPage() {
           <div className="lp-right-content">
             {/* TOP */}
             <div>
-              <p className="lp-right-headline">Servis Yönetimi</p>
               <h2 className="lp-right-title">
-                İşlerinizi
+                işletmenizi
                 <br />
                 <em>tek ekranda</em>
                 <br />
                 yönetin
               </h2>
               <p className="lp-right-desc">
-                Araç servis takibi, iş emirleri, müşteri kayıtları ve anlık raporlarla servis süreçlerinizi optimize edin.
+                Araç servis takibi, iş emirleri, müşteri kayıtları ve anlık raporlarla işletmenizin servis süreçlerini optimize edin.
               </p>
             </div>
 
-            {/* BOTTOM */}
-            <div className={`lp-feature-card theme-${ActiveFeature.theme}`}>
-              <div className="lp-feature-card-top">
-                <div className="lp-feature-icon">
-                  <ActiveFeature.icon size={16} />
-                </div>
-                <span className="lp-feature-name">{ActiveFeature.title}</span>
-              </div>
-
-              <p className="lp-feature-desc">{ActiveFeature.desc}</p>
-
-              <div className="lp-dots">
-                {featureCards.map((fc, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className={`lp-dot ${i === featureIndex ? `active theme-${fc.theme}` : ""}`}
-                    onClick={() => setFeatureIndex(i)}
-                    aria-label={`Feature ${i + 1}`}
-                  />
-                ))}
-              </div>
-            </div>
           </div>
         </div>
       </div>
+
+      {forgotOpen && (
+        <div className="lp-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="forgot-password-title">
+          <div className="lp-modal">
+            <h3 id="forgot-password-title" className="lp-modal-title">Şifremi Unuttum</h3>
+            <p className="lp-modal-subtitle">E-posta adresinizi girin, size şifre sıfırlama bağlantısı gönderelim.</p>
+
+            <form onSubmit={handleForgotPasswordSubmit} className="lp-modal-form">
+              <input
+                type="email"
+                autoComplete="email"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                className="lp-input"
+                placeholder="ornek@email.com"
+              />
+
+              {forgotError && <div className="lp-error">{forgotError}</div>}
+              {forgotSuccess && <div className="lp-success">{forgotSuccess}</div>}
+
+              <div className="lp-modal-actions">
+                <button type="button" className="lp-modal-cancel" onClick={closeForgotPasswordModal}>
+                  Vazgeç
+                </button>
+                <button type="submit" className="lp-submit lp-modal-submit" disabled={forgotLoading}>
+                  {forgotLoading ? "Gönderiliyor..." : "Sıfırlama Maili Gönder"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -151,7 +151,7 @@ export default function Dashboard() {
   const user = useAuth();
   const { business, loading } = useBusiness();
   const router = useRouter();
-  const { role } = useMembershipRole();
+  const { role, status: memberStatus, loading: memberStatusLoading } = useMembershipRole();
 
   // ── All original state preserved exactly ──────────────────────────────────
   const [recentJobs, setRecentJobs] = useState<DashboardJob[]>([]);
@@ -175,9 +175,11 @@ export default function Dashboard() {
 
   useEffect(() => { if (user === null) router.replace("/login"); }, [user, router]);
   useEffect(() => {
-    // Logout aninda onboarding'e degil login'e yonlenmesi icin user varligini sart kos.
-    if (user && !loading && !business) router.replace("/onboarding");
-  }, [user, business, loading, router]);
+    // Pending/inactive uyeler settings'e degil dashboard bekleme durumuna kalmali.
+    if (!user || loading || memberStatusLoading) return;
+    if (memberStatus === "pending" || memberStatus === "inactive") return;
+    if (!business) router.replace("/settings");
+  }, [user, business, loading, memberStatus, memberStatusLoading, router]);
 
   const handleResendVerification = async () => {
     if (!auth.currentUser) return;

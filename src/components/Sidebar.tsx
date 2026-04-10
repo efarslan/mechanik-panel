@@ -118,6 +118,9 @@ export default function Sidebar() {
           <button
             onClick={async () => {
               try {
+                // Ensure login page is not auto-redirected away
+                sessionStorage.setItem("forceLogin", "true");
+
                 await signOut(auth);
                 router.replace("/login");
               } catch (err) {

@@ -4,15 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import {
     addDoc,
     collection,
-    deleteDoc,
     doc,
-    getDocs,
-    query,
+    onSnapshot,
     serverTimestamp,
+    setDoc,
     updateDoc,
-    where,
 } from "firebase/firestore";
-import { sendEmailVerification, sendPasswordResetEmail, signOut, updateEmail, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
+import {
+    sendEmailVerification,
+    sendPasswordResetEmail,
+    signOut,
+} from "firebase/auth";
 import { useAuth } from "@/lib/useAuth";
 import { db, auth } from "@/lib/firebase";
 import { useBusiness } from "@/context/BusinessContext";
@@ -20,425 +22,425 @@ import { useMembershipRole, type MemberRole } from "@/lib/useMembershipRole";
 import { useRouter } from "next/navigation";
 import {
     Copy,
+    Check,
     Globe,
     KeyRound,
     LogOut,
     Pencil,
     Save,
-    ShieldCheck,
     Sparkles,
     Users,
     MailPlus,
     Trash2,
+    X,
+    ChevronRight,
+    AlertCircle,
+    CheckCircle2,
+    Crown,
+    UserCheck,
+    Wrench,
+    Eye,
+    RefreshCw,
+    ShieldAlert,
+    UserX,
+    Clock,
+    UserPlus,
 } from "lucide-react";
 
+// ─── Role helpers ────────────────────────────────────────────────────────────
+const ROLE_META: Record<string, { label: string; color: string; Icon: React.ElementType }> = {
+    owner: { label: "Owner", color: "text-amber-700 bg-amber-50 border-amber-200", Icon: Crown },
+    manager: { label: "Manager", color: "text-violet-700 bg-violet-50 border-violet-200", Icon: UserCheck },
+    technician: { label: "Teknisyen", color: "text-sky-700 bg-sky-50 border-sky-200", Icon: Wrench },
+    viewer: { label: "Viewer", color: "text-gray-600 bg-gray-50 border-gray-200", Icon: Eye },
+};
+
+function RoleBadge({ role }: { role: string }) {
+    const meta = ROLE_META[role] ?? ROLE_META.viewer;
+    const { label, color, Icon } = meta;
+    return (
+        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${color}`}>
+            <Icon className="w-3 h-3" />
+            {label}
+        </span>
+    );
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+type ToastVariant = "success" | "error" | "info";
+function Toast({ message, variant, onDismiss }: { message: string; variant: ToastVariant; onDismiss: () => void }) {
+    const styles: Record<ToastVariant, string> = {
+        success: "bg-emerald-50 border-emerald-200 text-emerald-800",
+        error: "bg-rose-50 border-rose-200 text-rose-800",
+        info: "bg-blue-50 border-blue-200 text-blue-800",
+    };
+    const Icons: Record<ToastVariant, React.ElementType> = {
+        success: CheckCircle2,
+        error: AlertCircle,
+        info: AlertCircle,
+    };
+    const Icon = Icons[variant];
+    return (
+        <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-xs font-medium ${styles[variant]}`}>
+            <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+            <span className="flex-1">{message}</span>
+            <button type="button" onClick={onDismiss} className="opacity-50 hover:opacity-100 transition">
+                <X className="w-3.5 h-3.5" />
+            </button>
+        </div>
+    );
+}
+
+// ─── Confirm Modal ────────────────────────────────────────────────────────────
+function ConfirmModal({
+    title,
+    description,
+    confirmLabel,
+    onConfirm,
+    onCancel,
+    loading,
+}: {
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+    loading?: boolean;
+}) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            {/* Backdrop */}
+            <div
+                className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+                onClick={onCancel}
+            />
+            {/* Dialog */}
+            <div className="relative bg-white rounded-2xl border border-gray-100 shadow-xl w-full max-w-sm p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                    <span className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
+                        <ShieldAlert className="w-4 h-4 text-rose-600" />
+                    </span>
+                    <div>
+                        <p className="text-sm font-bold text-[#111110]">{title}</p>
+                        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{description}</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        disabled={loading}
+                        className="flex-1 rounded-xl border border-gray-200 px-4 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition disabled:opacity-60"
+                    >
+                        Vazgeç
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirm}
+                        disabled={loading}
+                        className="flex-1 rounded-xl bg-rose-600 text-white px-4 py-2.5 text-xs font-bold hover:bg-rose-700 transition disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                    >
+                        {loading ? (
+                            <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                            <RefreshCw className="w-3.5 h-3.5" />
+                        )}
+                        {loading ? "Yenileniyor…" : confirmLabel}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+function Section({
+    icon: Icon,
+    title,
+    badge,
+    children,
+}: {
+    icon: React.ElementType;
+    title: string;
+    badge?: React.ReactNode;
+    children: React.ReactNode;
+}) {
+    return (
+        <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                    <span className="w-7 h-7 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center">
+                        <Icon className="w-3.5 h-3.5 text-amber-600" />
+                    </span>
+                    <h2 className="text-sm font-bold text-[#111110]">{title}</h2>
+                </div>
+                {badge && <span className="text-[11px] font-semibold text-gray-400">{badge}</span>}
+            </div>
+            <div className="p-5">{children}</div>
+        </section>
+    );
+}
+
+// ─── Field row ────────────────────────────────────────────────────────────────
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <div className="flex items-center justify-between gap-4 py-2.5 border-b border-gray-50 last:border-0">
+            <span className="text-xs text-gray-400 font-medium shrink-0">{label}</span>
+            <div className="text-xs font-semibold text-gray-800 text-right min-w-0">{children}</div>
+        </div>
+    );
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type MemberRow = {
+    userId: string;
+    email: string | null;
+    role: MemberRole | "owner";
+    status: string;
+};
+type MemberDocData = { email?: string | null; role?: MemberRole | string; status?: string };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const INVITE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function generateInviteCode(): string {
+    let raw = "";
+    for (let i = 0; i < 8; i += 1) {
+        raw += INVITE_CHARS[Math.floor(Math.random() * INVITE_CHARS.length)];
+    }
+    return `${raw.slice(0, 4)}-${raw.slice(4, 8)}`;
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
     const user = useAuth();
-    const { business, loading: businessLoading } = useBusiness();
+    const { business, loading: businessLoading, refreshBusiness } = useBusiness();
     const router = useRouter();
     const { role, loading: roleLoading } = useMembershipRole();
 
+    // Business name editing
     const [nameDraft, setNameDraft] = useState("");
     const [editingName, setEditingName] = useState(false);
     const [savingName, setSavingName] = useState(false);
-    const [nameError, setNameError] = useState<string | null>(null);
-    const [nameSuccess, setNameSuccess] = useState<string | null>(null);
+    const [nameMsg, setNameMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+    // Copy states
+    const [copied, setCopied] = useState(false);
+    const [uidCopied, setUidCopied] = useState(false);
+
+    // Auth actions
     const [resetLoading, setResetLoading] = useState(false);
-    const [resetStatus, setResetStatus] = useState<string | null>(null);
+    const [resetMsg, setResetMsg] = useState<{ text: string; ok: boolean } | null>(null);
     const [verifyLoading, setVerifyLoading] = useState(false);
-    const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
+    const [verifyMsg, setVerifyMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-    const [emailDraft, setEmailDraft] = useState(user?.email ?? "");
-    const [emailPassword, setEmailPassword] = useState("");
-    const [emailLoading, setEmailLoading] = useState(false);
-    const [emailError, setEmailError] = useState<string | null>(null);
-    const [emailSuccess, setEmailSuccess] = useState<string | null>(null);
-    useEffect(() => {
-        if (user?.email) {
-            setEmailDraft(user.email);
-        }
-    }, [user]);
-    const handleUpdateEmail = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!auth.currentUser || !user?.email) return;
-
-        setEmailError(null);
-        setEmailSuccess(null);
-
-        const newEmail = emailDraft.trim().toLowerCase();
-
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
-            setEmailError("Geçerli bir e-posta girin.");
-            return;
-        }
-
-        try {
-            setEmailLoading(true);
-
-            const credential = EmailAuthProvider.credential(user.email, emailPassword);
-            await reauthenticateWithCredential(auth.currentUser, credential);
-
-            await updateEmail(auth.currentUser, newEmail);
-
-            setEmailSuccess("E-posta başarıyla güncellendi.");
-            setEmailPassword("");
-        } catch (e: any) {
-            console.error(e);
-
-            if (e.code === "auth/wrong-password") {
-                setEmailError("Şifre hatalı.");
-            }
-            else if (e.code === "auth/operation-not-allowed") {
-                setEmailError("Yeni e-posta adresi eskisi doğrulanmadan değiştirilemez. Lütfen gelen kutunu kontrol et ve doğruladıktan sonra tekrar dene.");
-            }
-            else if (e.code === "auth/email-already-in-use") {
-                setEmailError("Bu e-posta başka bir hesap tarafından kullanılıyor.");
-            }
-            else {
-                setEmailError("E-posta güncellenemedi.");
-            }
-        } finally {
-            setEmailLoading(false);
-        }
-    };
-
-    type MemberRow = {
-        userId: string;
-        email: string | null;
-        role: MemberRole;
-        status: string;
-    };
-    type InviteRow = {
-        id: string;
-        email: string;
-        role: MemberRole;
-        status: string;
-    };
-
-    type MemberDocData = {
-        email?: string | null;
-        role?: MemberRole | string;
-        status?: string;
-    };
-
-    type InviteDocData = {
-        email?: string;
-        role?: MemberRole | string;
-        status?: string;
-    };
-
+    // Staff management
     const [membersLoading, setMembersLoading] = useState(false);
     const [members, setMembers] = useState<MemberRow[]>([]);
-    const [invitesLoading, setInvitesLoading] = useState(false);
-    const [invites, setInvites] = useState<InviteRow[]>([]);
+    const [pendingMembers, setPendingMembers] = useState<MemberRow[]>([]);
+    const [pendingRoles, setPendingRoles] = useState<Record<string, string>>({});
+    const [savingRoles, setSavingRoles] = useState(false);
 
-    const [inviteEmail, setInviteEmail] = useState("");
-    const [inviteRole, setInviteRole] = useState<MemberRole>("technician");
-    const [inviteError, setInviteError] = useState<string | null>(null);
-    const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+    // Invite code refresh
+    const [showRefreshModal, setShowRefreshModal] = useState(false);
+    const [refreshingCode, setRefreshingCode] = useState(false);
+    const [refreshCodeMsg, setRefreshCodeMsg] = useState<{ text: string; ok: boolean } | null>(null);
+    const [inviteCodeValue, setInviteCodeValue] = useState("");
+    const [newBusinessName, setNewBusinessName] = useState("");
+    const [creatingBusiness, setCreatingBusiness] = useState(false);
 
     const canManageStaff = role === "owner" || role === "manager";
 
     useEffect(() => {
-        if (!business) return;
-        setNameDraft(business.name ?? "");
+        if (business) setNameDraft(business.name ?? "");
     }, [business]);
-
-    const displayEmail = user?.email ?? "—";
-    const userIdShort = user?.uid ? user.uid.slice(0, 16) + "…" : "—";
-    const businessIdShort = business ? business.id.slice(0, 16) + "…" : "—";
+    useEffect(() => {
+        setInviteCodeValue(business?.inviteCode ?? "");
+    }, [business?.inviteCode]);
 
     const canSaveName = useMemo(() => {
         const v = nameDraft.trim();
-        if (!business) return false;
-        if (!v) return false;
-        if (v === business.name) return false;
-        return true;
+        return !!business && !!v && v !== business.name;
     }, [business, nameDraft]);
 
+    // ── Handlers ────────────────────────────────────────────────────────────
     const handleSaveName = async () => {
-        if (!business) return;
-        setNameError(null);
-        setNameSuccess(null);
+        if (!business || role !== "owner") return;
         const next = nameDraft.trim();
-        if (!next) {
-            setNameError("İşletme adı boş olamaz.");
-            return;
-        }
-
+        if (!next) { setNameMsg({ text: "İşletme adı boş olamaz.", ok: false }); return; }
         try {
             setSavingName(true);
-            await updateDoc(doc(db, "businesses", business.id), {
-                name: next,
-            });
-            setNameSuccess("İşletme adı güncellendi.");
+            setNameMsg(null);
+            await updateDoc(doc(db, "businesses", business.id), { name: next });
+            setNameMsg({ text: "İşletme adı güncellendi.", ok: true });
             setEditingName(false);
-        } catch (e) {
-            console.error(e);
-            setNameError("Güncellenirken hata oluştu. Tekrar deneyin.");
-        } finally {
-            setSavingName(false);
-        }
+        } catch { setNameMsg({ text: "Güncellenirken hata oluştu.", ok: false }); }
+        finally { setSavingName(false); }
     };
 
     const handleResetPassword = async () => {
-        if (!user?.email) {
-            setResetStatus("Şifre sıfırlama için e-posta bulunamadı.");
-            return;
-        }
-        setResetStatus(null);
+        if (!user?.email) return;
         try {
-            setResetLoading(true);
+            setResetLoading(true); setResetMsg(null);
             await sendPasswordResetEmail(auth, user.email);
-            setResetStatus("Şifre sıfırlama e-postası gönderildi.");
-        } catch (e) {
-            console.error(e);
-            setResetStatus("Şifre sıfırlama e-postası gönderilemedi.");
-        } finally {
-            setResetLoading(false);
-        }
+            setResetMsg({ text: "Şifre sıfırlama e-postası gönderildi.", ok: true });
+        } catch { setResetMsg({ text: "E-posta gönderilemedi.", ok: false }); }
+        finally { setResetLoading(false); }
     };
 
     const handleResendVerification = async () => {
         if (!auth.currentUser) return;
-        setVerifyLoading(true);
-        setVerifyStatus(null);
         try {
+            setVerifyLoading(true); setVerifyMsg(null);
             await sendEmailVerification(auth.currentUser);
-            setVerifyStatus("Doğrulama e-postası gönderildi.");
+            setVerifyMsg({ text: "Doğrulama e-postası gönderildi.", ok: true });
             await auth.currentUser.reload();
-        } catch (e) {
-            console.error(e);
-            setVerifyStatus("Doğrulama e-postası gönderilemedi.");
-        } finally {
-            setVerifyLoading(false);
-        }
+        } catch { setVerifyMsg({ text: "E-posta gönderilemedi.", ok: false }); }
+        finally { setVerifyLoading(false); }
     };
 
     const handleSignOut = async () => {
+        try { await signOut(auth); router.replace("/login"); }
+        catch { alert("Çıkış yapılamadı."); }
+    };
+
+    const handleCreateBusiness = async () => {
+        const name = newBusinessName.trim();
+        if (!user || !name) return;
         try {
-            await signOut(auth);
-            router.replace("/login");
-        } catch (e) {
-            console.error(e);
-            alert("Çıkış yapılamadı.");
+            setCreatingBusiness(true);
+            const inviteCode = generateInviteCode();
+            const businessRef = await addDoc(collection(db, "businesses"), {
+                name,
+                ownerId: user.uid,
+                inviteCode,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            });
+            await setDoc(doc(db, "businesses", businessRef.id, "members", user.uid), {
+                userId: user.uid,
+                role: "owner",
+                status: "active",
+                email: user.email ?? null,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+            });
+            refreshBusiness();
+            setNewBusinessName("");
+            router.replace("/dashboard");
+            router.refresh();
+        } catch {
+            alert("İşletme oluşturulurken hata oluştu.");
+        } finally {
+            setCreatingBusiness(false);
         }
     };
 
-    const roleOptionsForInvite: MemberRole[] = useMemo(() => {
-        if (role === "owner") return ["manager", "technician", "viewer"];
-        if (role === "manager") return ["technician", "viewer"];
-        return [];
-    }, [role]);
-
     useEffect(() => {
-        const run = async () => {
-            if (!business) return;
-            if (!canManageStaff) return;
-            if (!user || user.emailVerified === false) return; // sadece doğrulanmış kullanıcıya yönetim
-
-            setMembersLoading(true);
-            try {
-                const snap = await getDocs(collection(db, "businesses", business.id, "members"));
-                const list: MemberRow[] = snap.docs
-                    .map((d) => {
-                        const data = d.data() as MemberDocData;
-                        return {
-                            userId: d.id,
-                            email: data.email ?? null,
-                            role: (data.role ?? "viewer") as MemberRole,
-                            status: data.status ?? "active",
-                        };
-                    })
-                    .filter((m) => (m.status ?? "active") === "active");
-                setMembers(list);
-            } catch (e) {
-                console.error(e);
-                setMembers([]);
-            } finally {
-                setMembersLoading(false);
-            }
-
-            setInvitesLoading(true);
-            try {
-                const snap = await getDocs(collection(db, "businesses", business.id, "invites"));
-                const list: InviteRow[] = snap.docs.map((d) => {
-                    const data = d.data() as InviteDocData;
-                    return {
-                        id: d.id,
-                        email: data.email ?? "",
-                        role: (data.role ?? "viewer") as MemberRole,
-                        status: data.status ?? "invited",
-                    };
-                });
-                setInvites(list.filter((i) => i.status === "invited"));
-            } catch (e) {
-                console.error(e);
-                setInvites([]);
-            } finally {
-                setInvitesLoading(false);
-            }
-        };
-
-        run();
-    }, [business, canManageStaff, user]);
-
-    const refreshMembersAndInvites = async () => {
-        if (!business) return;
+        if (!business || !canManageStaff || !user?.emailVerified) return;
         setMembersLoading(true);
-        setInvitesLoading(true);
-        try {
-            const [mSnap, iSnap] = await Promise.all([
-                getDocs(collection(db, "businesses", business.id, "members")),
-                getDocs(collection(db, "businesses", business.id, "invites")),
-            ]);
-            const listM: MemberRow[] = mSnap.docs
-                .map((d) => {
+        const unsub = onSnapshot(
+            collection(db, "businesses", business.id, "members"),
+            (snap) => {
+                const all = snap.docs.map((d) => {
                     const data = d.data() as MemberDocData;
                     return {
                         userId: d.id,
                         email: data.email ?? null,
-                        role: (data.role ?? "viewer") as MemberRole,
+                        role: (data.role ?? "technician") as MemberRole,
                         status: data.status ?? "active",
                     };
-                })
-                .filter((m) => (m.status ?? "active") === "active");
-            const listI: InviteRow[] = iSnap.docs.map((d) => {
-                const data = d.data() as InviteDocData;
-                return {
-                    id: d.id,
-                    email: data.email ?? "",
-                    role: (data.role ?? "viewer") as MemberRole,
-                    status: data.status ?? "invited",
-                };
-            });
+                });
+                setMembers(all.filter((m) => m.status === "active"));
+                setPendingMembers(all.filter((m) => m.status === "pending"));
+                setMembersLoading(false);
+            },
+            (err) => {
+                console.error(err);
+                setMembersLoading(false);
+            },
+        );
+        return () => unsub();
+    }, [business, canManageStaff, user]);
 
-            setMembers(listM);
-            setInvites(listI.filter((i) => i.status === "invited"));
-        } catch (e) {
-            console.error(e);
+    const handleRefreshInviteCode = async () => {
+        if (!business || role !== "owner") return;
+        try {
+            setRefreshingCode(true);
+            setRefreshCodeMsg(null);
+            const newCode = generateInviteCode();
+            await updateDoc(doc(db, "businesses", business.id), { inviteCode: newCode });
+            setInviteCodeValue(newCode);
+            setRefreshCodeMsg({ text: "Davet kodu yenilendi.", ok: true });
+            setShowRefreshModal(false);
+        } catch {
+            setRefreshCodeMsg({ text: "Kod yenilenirken hata oluştu.", ok: false });
+            setShowRefreshModal(false);
         } finally {
-            setMembersLoading(false);
-            setInvitesLoading(false);
+            setRefreshingCode(false);
         }
     };
 
-    const handleInviteStaff = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setInviteError(null);
-        setInviteSuccess(null);
-
-        if (!business) return;
-        if (!user?.email) return;
-        if (!canManageStaff) return;
-
-        const email = inviteEmail.trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            setInviteError("Geçerli bir e-posta girin.");
-            return;
-        }
-        if (!roleOptionsForInvite.includes(inviteRole)) {
-            setInviteError("Seçilen rol için yetkiniz yok.");
-            return;
-        }
-
+    const handleRemoveMember = async (m: MemberRow) => {
+        if (!business || !canManageStaff || m.role === "owner") return;
         try {
-            setInviteSuccess(null);
-            setInviteError(null);
+            await updateDoc(doc(db, "businesses", business.id, "members", m.userId), {
+                status: "inactive",
+                updatedAt: serverTimestamp(),
+                deactivatedAt: serverTimestamp(),
+                deactivatedBy: user?.uid ?? null,
+            });
+        } catch { alert("Çalışan kaldırılırken hata oluştu."); }
+    };
 
-            // mevcut member veya invite kontrolü
-            const membersSnap = await getDocs(
-                query(
-                    collection(db, "businesses", business.id, "members"),
-                    where("email", "==", email),
-                    where("status", "==", "active"),
+    const handleApproveMember = async (m: MemberRow) => {
+        if (!business || !canManageStaff) return;
+        try {
+            await updateDoc(doc(db, "businesses", business.id, "members", m.userId), {
+                status: "active",
+                updatedAt: serverTimestamp(),
+                approvedAt: serverTimestamp(),
+                approvedBy: user?.uid ?? null,
+            });
+        } catch { alert("Onaylanırken hata oluştu."); }
+    };
+
+    const handleRejectMember = async (m: MemberRow) => {
+        if (!business || !canManageStaff) return;
+        try {
+            await updateDoc(doc(db, "businesses", business.id, "members", m.userId), {
+                status: "inactive",
+                updatedAt: serverTimestamp(),
+                rejectedAt: serverTimestamp(),
+                rejectedBy: user?.uid ?? null,
+            });
+        } catch { alert("Reddedilirken hata oluştu."); }
+    };
+
+    const handleSaveRoles = async () => {
+        if (!business) return;
+        try {
+            setSavingRoles(true);
+            await Promise.all(
+                Object.entries(pendingRoles).map(([uid, r]) =>
+                    updateDoc(doc(db, "businesses", business.id, "members", uid), {
+                        role: r,
+                        updatedAt: serverTimestamp(),
+                        updatedBy: user?.uid ?? null,
+                    }),
                 ),
             );
-            if (!membersSnap.empty) {
-                setInviteError("Bu e-posta zaten işletmede aktif bir çalışan.");
-                return;
-            }
-
-            const invitesSnap = await getDocs(
-                query(
-                    collection(db, "businesses", business.id, "invites"),
-                    where("email", "==", email),
-                    where("status", "==", "invited"),
-                ),
-            );
-            if (!invitesSnap.empty) {
-                setInviteError("Bu e-posta için bekleyen bir davet zaten var.");
-                return;
-            }
-
-            await addDoc(collection(db, "businesses", business.id, "invites"), {
-                email,
-                role: inviteRole,
-                status: "invited",
-                invitedAt: serverTimestamp(),
-                invitedBy: user.uid,
-            });
-
-            setInviteSuccess("Davet oluşturuldu. E-posta ile giriş yapan kullanıcı otomatik olarak eklenir.");
-            setInviteEmail("");
-            // roller secimi kalabilir
-            await refreshMembersAndInvites();
-        } catch (err) {
-            console.error(err);
-            setInviteError("Davet oluşturulurken hata oluştu.");
-        }
+            setPendingRoles({});
+        } catch (e) { console.error(e); }
+        finally { setSavingRoles(false); }
     };
 
-    const handleRemoveMember = async (member: MemberRow) => {
-        if (!business) return;
-        if (!canManageStaff) return;
-        if (member.role === "owner") return;
-
-        try {
-            await deleteDoc(doc(db, "businesses", business.id, "members", member.userId));
-            await refreshMembersAndInvites();
-        } catch (e) {
-            console.error(e);
-            alert("Çalışan kaldırılırken hata oluştu.");
-        }
-    };
-
-    const handleUpdateMemberRole = async (member: MemberRow, nextRole: MemberRole) => {
-        if (!business) return;
-        if (!canManageStaff) return;
-        if (member.role === "owner") return;
-        if (role === "manager" && nextRole !== "technician" && nextRole !== "viewer") return;
-
-        try {
-            await updateDoc(doc(db, "businesses", business.id, "members", member.userId), {
-                role: nextRole,
-            });
-            await refreshMembersAndInvites();
-        } catch (e) {
-            console.error(e);
-            alert("Rol güncellenirken hata oluştu.");
-        }
-    };
-
-    const handleCancelInvite = async (inviteId: string) => {
-        if (!business) return;
-        if (!canManageStaff) return;
-        try {
-            await deleteDoc(doc(db, "businesses", business.id, "invites", inviteId));
-            await refreshMembersAndInvites();
-        } catch (e) {
-            console.error(e);
-            alert("Davet silinirken hata oluştu.");
-        }
-    };
-
+    // ── Loading / guards ─────────────────────────────────────────────────────
     if (user === undefined || businessLoading || roleLoading) {
         return (
-            <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center">
+            <div className="min-h-screen bg-[#f5f4f0] flex items-center justify-center">
                 <div className="flex flex-col items-center gap-3">
-                    <div className="w-9 h-9 border-[3px] border-gray-200 border-t-amber-400 rounded-full animate-spin" />
-                    <p className="text-sm text-gray-400 font-medium">Ayarlar yükleniyor...</p>
+                    <div className="w-10 h-10 rounded-full border-[3px] border-gray-200 border-t-amber-400 animate-spin" />
+                    <p className="text-xs text-gray-400 font-semibold tracking-wide">Yükleniyor…</p>
                 </div>
             </div>
         );
@@ -446,414 +448,405 @@ export default function SettingsPage() {
 
     if (!business) {
         return (
-            <div className="min-h-screen bg-[#f8f8f6] flex items-center justify-center">
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-center">
-                    <p className="text-sm font-semibold text-gray-900">İşletme bulunamadı</p>
-                    <p className="text-xs text-gray-500 mt-1">Onboarding adımını tamamlayın.</p>
-                    <button
-                        type="button"
-                        onClick={() => router.replace("/onboarding")}
-                        className="mt-4 inline-flex items-center gap-2 bg-[#111110] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-gray-800 transition"
-                    >
-                        Onboarding’e git
-                        <Sparkles className="w-3.5 h-3.5" />
-                    </button>
+            <div className="min-h-screen bg-[#f5f4f0] flex items-center justify-center px-4">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center max-w-sm w-full">
+                    <div className="w-12 h-12 mx-auto mb-4 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+                        <Sparkles className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <p className="text-sm font-bold text-gray-900">İşletme oluştur</p>
+                    <p className="text-xs text-gray-500 mt-1.5">
+                        Devam etmek için hesabınıza bağlı bir işletme oluşturun.
+                    </p>
+                    <div className="mt-5 space-y-3 text-left">
+                        <label className="block text-xs font-semibold text-gray-600">İşletme adı</label>
+                        <input
+                            type="text"
+                            value={newBusinessName}
+                            onChange={(e) => setNewBusinessName(e.target.value)}
+                            placeholder="Örn: Oto Servis"
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200"
+                        />
+                        <button
+                            type="button"
+                            disabled={creatingBusiness || !newBusinessName.trim()}
+                            onClick={handleCreateBusiness}
+                            className="w-full inline-flex items-center justify-center gap-2 bg-[#111110] text-white px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-gray-800 transition disabled:opacity-60"
+                        >
+                            {creatingBusiness ? "Oluşturuluyor..." : "İşletmeyi Oluştur"}
+                            <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSignOut}
+                            className="w-full inline-flex items-center justify-center gap-2 border border-gray-200 text-gray-600 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-gray-50 transition"
+                        >
+                            Çıkış Yap
+                        </button>
+                    </div>
                 </div>
             </div>
         );
     }
 
+    const hasPendingRoles = Object.keys(pendingRoles).length > 0;
+
+    // ── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#f8f8f6] pb-20">
-            <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 space-y-4">
-                {/* Header */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="h-1 bg-gradient-to-r from-yellow-300 via-amber-400 to-amber-300" />
-                    <div className="p-5 sm:p-7 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-                        <div>
-                            <h1 className="text-xl sm:text-2xl font-bold text-[#111110] tracking-tight">
-                                Ayarlar
-                            </h1>
-                            <p className="text-xs text-gray-400 mt-1.5">
-                                Hesap, işletme ve güvenlik tercihlerinizi yönetin.
-                            </p>
-                        </div>
-                        <div className="inline-flex items-center gap-2 rounded-xl bg-gray-50 border border-gray-100 px-3 py-2">
-                            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                            <p className="text-xs font-semibold text-gray-700">Güvenli giriş aktif</p>
-                        </div>
-                    </div>
+        <div className="min-h-screen bg-[#f5f4f0] pb-24">
+            {/* ── Confirm modal ── */}
+            {showRefreshModal && (
+                <ConfirmModal
+                    title="Davet kodunu yenile"
+                    description="Mevcut kod geçersiz hale gelir. Bu kodu paylaştıysanız yeni kodu tekrar göndermeniz gerekir. Devam etmek istediğinize emin misiniz?"
+                    confirmLabel="Yenile"
+                    onConfirm={handleRefreshInviteCode}
+                    onCancel={() => setShowRefreshModal(false)}
+                    loading={refreshingCode}
+                />
+            )}
+            <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-8 space-y-4">
+
+                {/* ── Page header ── */}
+                <div className="mb-2">
+                    <h1 className="text-2xl font-extrabold text-[#111110] tracking-tight">Ayarlar</h1>
+                    <p className="text-xs text-gray-400 mt-1">Hesap, işletme ve ekip tercihlerinizi yönetin.</p>
                 </div>
 
-                {/* Account card */}
-                <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <Globe className="w-4 h-4 text-amber-600" />
-                            <h2 className="text-sm font-bold text-[#111110]">Hesap</h2>
+                {/* ── Email not verified banner ── */}
+                {!user?.emailVerified && (
+                    <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                            <MailPlus className="w-4 h-4 text-amber-700" />
                         </div>
-                        <span className="text-[11px] font-semibold text-gray-400">Firebase Auth</span>
-                    </div>
-
-                    <div className="p-5 space-y-3">
-                        {!user?.emailVerified && (
-                            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <MailPlus className="w-4 h-4 text-amber-700" />
-                                    <p className="text-xs font-bold text-amber-900">E-posta doğrulanmadı</p>
-                                </div>
-                                <p className="text-[11px] text-amber-800/70">
-                                    Bazı yönetim işlemleri doğrulama tamamlanana kadar kısıtlıdır.
-                                </p>
-                                <button
-                                    type="button"
-                                    onClick={handleResendVerification}
-                                    disabled={verifyLoading}
-                                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 text-[#111110] px-4 py-2.5 text-xs font-bold hover:bg-amber-500 transition disabled:opacity-60"
-                                >
-                                    {verifyLoading ? "Gönderiliyor..." : "Doğrulama mailini tekrar gönder"}
-                                </button>
-                                {verifyStatus && <p className="text-[11px] text-emerald-700">{verifyStatus}</p>}
-                            </div>
-                        )}
-
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs text-gray-500">E-posta</span>
-                            <span className="text-xs font-semibold text-gray-900 truncate">{displayEmail}</span>
-                        </div>
-
-                        <form onSubmit={handleUpdateEmail} className="mt-2 space-y-2">
-                            <div className="flex flex-col gap-2">
-                                <input
-                                    type="email"
-                                    value={emailDraft}
-                                    onChange={(e) => setEmailDraft(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-200"
-                                    placeholder="Yeni e-posta"
-                                />
-                                <input
-                                    type="password"
-                                    value={emailPassword}
-                                    onChange={(e) => setEmailPassword(e.target.value)}
-                                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-200"
-                                    placeholder="Mevcut şifreniz"
-                                />
-                            </div>
-
-                            {emailError && <p className="text-xs text-rose-600">{emailError}</p>}
-                            {emailSuccess && <p className="text-xs text-emerald-600">{emailSuccess}</p>}
-
-                            <button
-                                type="submit"
-                                disabled={emailLoading}
-                                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#111110] text-white px-3 py-2 text-xs font-bold hover:bg-gray-800 transition disabled:opacity-60"
-                            >
-                                {emailLoading ? "Güncelleniyor..." : "E-postayı güncelle"}
-                            </button>
-                        </form>
-
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs text-gray-500">Kullanıcı UID</span>
-                            <span className="text-xs font-mono text-gray-700 truncate">{userIdShort}</span>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs text-gray-500">Kopyala</span>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    navigator.clipboard?.writeText(user?.uid ?? "");
-                                }}
-                                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
-                            >
-                                <Copy className="w-3.5 h-3.5 text-gray-400" />
-                                UID
-                            </button>
-                        </div>
-
-                        <div className="pt-2 border-t border-gray-100">
-                            <button
-                                type="button"
-                                onClick={handleResetPassword}
-                                disabled={resetLoading}
-                                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 text-[#111110] px-4 py-2.5 text-xs font-bold hover:bg-amber-500 transition disabled:opacity-60"
-                            >
-                                <KeyRound className="w-3.5 h-3.5" />
-                                {resetLoading ? "Gönderiliyor..." : "Şifre sıfırlama e-postası"}
-                            </button>
-                            {resetStatus && (
-                                <p className={`mt-2 text-xs ${resetStatus.includes("gönderildi") ? "text-emerald-600" : "text-rose-600"}`}>
-                                    {resetStatus}
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-amber-900">E-posta doğrulanmadı</p>
+                            <p className="text-[11px] text-amber-800/70 mt-0.5">
+                                Bazı yönetim işlemleri e-posta doğrulanana kadar kısıtlıdır.
+                            </p>
+                            {verifyMsg && (
+                                <p className={`text-[11px] mt-1.5 font-semibold ${verifyMsg.ok ? "text-emerald-700" : "text-rose-700"}`}>
+                                    {verifyMsg.text}
                                 </p>
                             )}
                         </div>
+                        <button
+                            type="button"
+                            onClick={handleResendVerification}
+                            disabled={verifyLoading}
+                            className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-amber-400 text-[#111110] px-3 py-2 text-[11px] font-bold hover:bg-amber-500 transition disabled:opacity-60"
+                        >
+                            {verifyLoading ? "…" : <><MailPlus className="w-3 h-3" /> Gönder</>}
+                        </button>
                     </div>
-                </section>
+                )}
 
-                {/* Business card */}
-                <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <Sparkles className="w-4 h-4 text-amber-600" />
-                            <h2 className="text-sm font-bold text-[#111110]">İşletme</h2>
-                        </div>
-                        <span className="text-[11px] font-semibold text-gray-400">{businessIdShort}</span>
+                {/* ── Account section ── */}
+                <Section icon={Globe} title="Hesap" badge="Firebase Auth">
+                    <div className="space-y-0.5">
+                        <FieldRow label="E-posta">
+                            <span className="flex items-center gap-2">
+                                {user?.email ?? "—"}
+                                {user?.emailVerified && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                                        <CheckCircle2 className="w-2.5 h-2.5" /> Doğrulandı
+                                    </span>
+                                )}
+                            </span>
+                        </FieldRow>
+                        <FieldRow label="Kullanıcı ID">
+                            <button
+                                type="button"
+                                onClick={() => { navigator.clipboard?.writeText(user?.uid ?? ""); setUidCopied(true); setTimeout(() => setUidCopied(false), 1500); }}
+                                className="flex items-center gap-1.5 font-mono text-gray-600 hover:text-amber-600 transition group">
+                                <span className="font-mono text-gray-600"> {user?.uid ?? "—"} </span>
+                                {uidCopied ? <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> : <Copy className="w-3 h-3 text-gray-300 group-hover:text-amber-400 shrink-0 transition" />}
+                            </button>
+                        </FieldRow>
                     </div>
 
-                    <div className="p-5 space-y-4">
-                        <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs text-gray-500">İşletme adı</span>
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={handleResetPassword}
+                            disabled={resetLoading}
+                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#111110] text-white px-4 py-2.5 text-xs font-bold hover:bg-gray-800 transition disabled:opacity-60"
+                        >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            {resetLoading ? "Gönderiliyor…" : "Şifre Sıfırlama E-postası Gönder"}
+                        </button>
+                        {resetMsg && (
+                            <Toast
+                                message={resetMsg.text}
+                                variant={resetMsg.ok ? "success" : "error"}
+                                onDismiss={() => setResetMsg(null)}
+                            />
+                        )}
+                    </div>
+                </Section>
+
+                {/* ── Business section ── */}
+                <Section icon={Sparkles} title="İşletme" badge={`ID: ${business.id}`}>
+                    <div className="space-y-0.5">
+                        <FieldRow label="İşletme Adı">
                             {!editingName ? (
                                 <div className="flex items-center gap-2">
-                                    <span className="text-xs font-semibold text-gray-900">{business.name}</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setNameDraft(business.name);
-                                            setEditingName(true);
-                                            setNameError(null);
-                                            setNameSuccess(null);
-                                        }}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-100 transition"
-                                    >
-                                        <Pencil className="w-3.5 h-3.5" />
-                                        Düzenle
-                                    </button>
+                                    <span>{business.name}</span>
+                                    {role === "owner" && (
+                                        <button
+                                            type="button"
+                                            onClick={() => { setNameDraft(business.name); setEditingName(true); setNameMsg(null); }}
+                                            className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-semibold text-gray-500 hover:border-amber-300 hover:text-amber-700 hover:bg-amber-50 transition"
+                                        >
+                                            <Pencil className="w-3 h-3" /> Düzenle
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
-                                <div className="flex-1 max-w-[220px]">
+                                <div className="flex items-center gap-2 w-full justify-end">
                                     <input
                                         value={nameDraft}
                                         onChange={(e) => setNameDraft(e.target.value)}
-                                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-300 transition"
+                                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") { setEditingName(false); setNameDraft(business.name); } }}
+                                        autoFocus
+                                        className="border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-300 transition w-44"
                                         placeholder="İşletme adı"
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={() => { setEditingName(false); setNameDraft(business.name); setNameMsg(null); }}
+                                        className="h-9 w-9 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 hover:bg-gray-100 transition inline-flex items-center justify-center"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveName}
+                                        disabled={!canSaveName || savingName}
+                                        className="h-9 px-3 rounded-xl bg-[#111110] text-white text-xs font-bold hover:bg-gray-800 transition disabled:opacity-50 inline-flex items-center gap-1.5"
+                                    >
+                                        <Save className="w-3.5 h-3.5" />
+                                        {savingName ? "…" : "Kaydet"}
+                                    </button>
                                 </div>
                             )}
-                        </div>
-
-                        {editingName && (
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setEditingName(false);
-                                        setNameDraft(business.name);
-                                        setNameError(null);
-                                        setNameSuccess(null);
-                                    }}
-                                    className="flex-1 inline-flex items-center justify-center rounded-xl border border-gray-200 px-3 py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
-                                    disabled={savingName}
-                                >
-                                    İptal
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleSaveName}
-                                    disabled={!canSaveName || savingName}
-                                    className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-[#111110] text-white px-3 py-2.5 text-xs font-bold hover:bg-gray-800 transition disabled:opacity-60"
-                                >
-                                    <Save className="w-3.5 h-3.5" />
-                                    {savingName ? "Kaydediliyor..." : "Kaydet"}
-                                </button>
-                            </div>
-                        )}
-
-                        {nameError && <p className="text-xs text-rose-600">{nameError}</p>}
-                        {nameSuccess && <p className="text-xs text-emerald-600">{nameSuccess}</p>}
-                    </div>
-                </section>
-
-                {/* Staff & Roles */}
-                <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-amber-600" />
-                            <h2 className="text-sm font-bold text-[#111110]">Çalışanlar & Roller</h2>
-                        </div>
-                        <span className="text-[11px] font-semibold text-gray-400">
-                            {role ? `Rol: ${role}` : "Rol: —"}
-                        </span>
+                        </FieldRow>
                     </div>
 
-                    <div className="p-5 space-y-4">
-                        {!canManageStaff ? (
-                            <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-xs text-gray-600">
-                                Çalışan yönetimi için yetkiniz bulunmuyor.
-                            </div>
-                        ) : !user?.emailVerified ? (
-                            <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900">
-                                E-posta doğrulaması tamamlanmadan çalışan yönetimi kısıtlıdır.
-                            </div>
-                        ) : (
-                            <>
-                                <form onSubmit={handleInviteStaff} className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-3">
-                                    <div className="flex items-center gap-3 flex-col sm:flex-row">
-                                        <div className="flex-1 w-full">
-                                            <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                                                Çalışan E-posta
-                                            </label>
-                                            <input
-                                                value={inviteEmail}
-                                                onChange={(e) => setInviteEmail(e.target.value)}
-                                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-300 transition"
-                                                placeholder="ornek@email.com"
-                                            />
-                                        </div>
-                                        <div className="w-full sm:w-44">
-                                            <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                                                Rol
-                                            </label>
-                                            <select
-                                                value={inviteRole}
-                                                onChange={(e) => setInviteRole(e.target.value as MemberRole)}
-                                                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-300 transition"
-                                            >
-                                                {roleOptionsForInvite.map((r) => (
-                                                    <option key={r} value={r}>
-                                                        {r === "manager" ? "Manager" : r === "technician" ? "Teknisyen" : "Viewer"}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
+                    {nameMsg && (
+                        <div className="mt-3">
+                            <Toast message={nameMsg.text} variant={nameMsg.ok ? "success" : "error"} onDismiss={() => setNameMsg(null)} />
+                        </div>
+                    )}
+                </Section>
+
+                {/* ── Staff & Roles section ── */}
+                <Section icon={Users} title="Çalışanlar & Roller" badge={role ? <RoleBadge role={role} /> : undefined}>
+                    {!canManageStaff ? (
+                        <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-xs text-gray-500 text-center">
+                            Çalışan yönetimi için yetkiniz bulunmuyor.
+                        </div>
+                    ) : !user?.emailVerified ? (
+                        <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-800 text-center">
+                            E-posta doğrulaması tamamlanmadan çalışan yönetimi kısıtlıdır.
+                        </div>
+                    ) : (
+                        <div className="space-y-5">
+
+                            {/* Invite code */}
+                            <div className="rounded-xl bg-[#fafaf8] border border-gray-100 p-3.5 space-y-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Davet Kodu</p>
+                                        <p className="text-sm font-bold text-gray-900 mt-0.5 font-mono tracking-wide">{inviteCodeValue || "—"}</p>
                                     </div>
-
-                                    {inviteError && <p className="text-xs text-rose-600">{inviteError}</p>}
-                                    {inviteSuccess && <p className="text-xs text-emerald-600">{inviteSuccess}</p>}
-
                                     <button
-                                        type="submit"
-                                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#111110] text-white px-4 py-2.5 text-xs font-bold hover:bg-gray-800 transition"
-                                        disabled={!inviteEmail.trim() || !roleOptionsForInvite.length}
+                                        type="button"
+                                        onClick={() => { navigator.clipboard?.writeText(inviteCodeValue ?? ""); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                                        aria-label="Kopyala"
+                                        className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${copied ? "border-emerald-400 bg-emerald-50 text-emerald-600" : "border-gray-200 bg-white text-gray-400 hover:border-amber-300 hover:text-amber-600"}`}
                                     >
-                                        <MailPlus className="w-3.5 h-3.5" />
-                                        Davet oluştur
+                                        {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                                     </button>
-                                </form>
+                                </div>
 
-                                {/* Members */}
+                                {role === "owner" && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowRefreshModal(true)}
+                                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-white text-gray-500 px-4 py-2 text-[11px] font-semibold hover:border-rose-300 hover:text-rose-600 hover:bg-rose-50 transition"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        Kodu Yenile
+                                    </button>
+                                )}
+
+                                {refreshCodeMsg && (
+                                    <Toast
+                                        message={refreshCodeMsg.text}
+                                        variant={refreshCodeMsg.ok ? "success" : "error"}
+                                        onDismiss={() => setRefreshCodeMsg(null)}
+                                    />
+                                )}
+                            </div>
+
+                            {/* Pending member requests */}
+                            {(pendingMembers.length > 0) && (
                                 <div className="space-y-2">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <p className="text-xs font-bold text-[#111110]">Aktif çalışanlar</p>
-                                        {membersLoading ? (
-                                            <p className="text-[11px] text-gray-400">Yükleniyor...</p>
-                                        ) : (
-                                            <p className="text-[11px] text-gray-400">{members.length} kişi</p>
-                                        )}
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-xs font-bold text-[#111110]">Bekleyen Başvurular</p>
+                                            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-[10px] font-bold text-[#111110]">
+                                                {pendingMembers.length}
+                                            </span>
+                                        </div>
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                            <Clock className="w-2.5 h-2.5" /> Onay bekliyor
+                                        </span>
                                     </div>
-
                                     <div className="space-y-2">
-                                        {members.map((m) => (
-                                            <div
-                                                key={m.userId}
-                                                className="rounded-2xl border border-gray-100 bg-white p-4 flex items-center justify-between gap-3"
-                                            >
-                                                <div className="min-w-0">
+                                        {pendingMembers.map((m) => (
+                                            <div key={m.userId} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3.5 flex items-center justify-between gap-3">
+                                                <div className="min-w-0 flex-1">
                                                     <p className="text-xs font-semibold text-gray-900 truncate">
                                                         {m.email ?? m.userId}
                                                     </p>
-                                                    <p className="text-[11px] text-gray-500 mt-0.5">Kullanıcı: {m.userId.slice(0, 10)}…</p>
+                                                    <p className="text-[10px] text-gray-400 mt-0.5 font-mono truncate">{m.userId}</p>
                                                 </div>
-
-                                                <div className="flex items-center gap-2">
-                                                    <select
-                                                        value={m.role}
-                                                        onChange={(e) => handleUpdateMemberRole(m, e.target.value as MemberRole)}
-                                                        disabled={m.role === "owner"}
-                                                        className="h-9 rounded-xl border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-200 focus:border-amber-300 transition disabled:opacity-50"
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRejectMember(m)}
+                                                        className="w-8 h-8 rounded-xl border border-rose-100 bg-rose-50 text-rose-400 hover:bg-rose-100 hover:text-rose-600 transition inline-flex items-center justify-center"
+                                                        aria-label="Reddet"
                                                     >
-                                                        {(role === "owner"
-                                                            ? (["owner", "manager", "technician", "viewer"] as MemberRole[])
-                                                            : (["technician", "viewer"] as MemberRole[])
-                                                        ).map((r) => (
-                                                            <option key={r} value={r}>
-                                                                {r === "owner" ? "Owner" : r === "manager" ? "Manager" : r === "technician" ? "Teknisyen" : "Viewer"}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-
-                                                    {m.role !== "owner" && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRemoveMember(m)}
-                                                            className="h-9 w-9 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition disabled:opacity-50 inline-flex items-center justify-center"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    )}
+                                                        <UserX className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleApproveMember(m)}
+                                                        className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 text-white px-3 py-1.5 text-[11px] font-bold hover:bg-emerald-700 transition"
+                                                        aria-label="Onayla"
+                                                    >
+                                                        <UserPlus className="w-3.5 h-3.5" />
+                                                        Onayla
+                                                    </button>
                                                 </div>
                                             </div>
                                         ))}
-                                        {members.length === 0 && (
-                                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
-                                                Aktif çalışan yok.
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
+                            )}
 
-                                {/* Invites */}
-                                <div className="space-y-2 pt-2">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <p className="text-xs font-bold text-[#111110]">Bekleyen davetler</p>
-                                        {invitesLoading ? (
-                                            <p className="text-[11px] text-gray-400">Yükleniyor...</p>
-                                        ) : (
-                                            <p className="text-[11px] text-gray-400">{invites.length} davet</p>
-                                        )}
+                            {/* Active members */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-bold text-[#111110]">Aktif Çalışanlar</p>
+                                    {membersLoading
+                                        ? <span className="text-[11px] text-gray-400">Yükleniyor…</span>
+                                        : <span className="text-[11px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{members.length}</span>
+                                    }
+                                </div>
+
+                                {members.length === 0 && !membersLoading ? (
+                                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-5 text-center text-xs text-gray-400">
+                                        Henüz aktif çalışan yok.
                                     </div>
-
+                                ) : (
                                     <div className="space-y-2">
-                                        {invites.map((i) => (
-                                            <div
-                                                key={i.id}
-                                                className="rounded-2xl border border-gray-100 bg-white p-4 flex items-center justify-between gap-3"
-                                            >
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-semibold text-gray-900 truncate">
-                                                        {i.email}
-                                                    </p>
-                                                    <p className="text-[11px] text-gray-500 mt-0.5">
-                                                        Rol:{" "}
-                                                        {i.role === "manager" ? "Manager" : i.role === "technician" ? "Teknisyen" : "Viewer"}
-                                                    </p>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleCancelInvite(i.id)}
-                                                    className="h-9 w-9 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition inline-flex items-center justify-center"
+                                        {members.map((m) => {
+                                            const currentRole = pendingRoles[m.userId] ?? m.role;
+                                            const isDirty = !!(pendingRoles[m.userId] && pendingRoles[m.userId] !== m.role);
+                                            return (
+                                                <div
+                                                    key={m.userId}
+                                                    className={`rounded-xl border p-3.5 flex items-center justify-between gap-3 transition ${isDirty ? "border-amber-200 bg-amber-50/40" : "border-gray-100 bg-white"}`}
                                                 >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        ))}
-                                        {invites.length === 0 && (
-                                            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
-                                                Bekleyen davet yok.
-                                            </div>
-                                        )}
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-xs font-semibold text-gray-900 truncate">
+                                                            {m.email ?? m.userId}
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400 mt-0.5 font-mono truncate">{m.userId}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {m.role === "owner" ? (
+                                                            <RoleBadge role="owner" />
+                                                        ) : (
+                                                            <select
+                                                                value={currentRole}
+                                                                onChange={(e) => setPendingRoles((p) => ({ ...p, [m.userId]: e.target.value }))}
+                                                                className="h-8 rounded-xl border border-gray-200 bg-white px-2.5 text-[11px] font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-200 transition"
+                                                            >
+                                                                {(role === "owner"
+                                                                    ? (["manager", "technician", "viewer"] as MemberRole[])
+                                                                    : (["technician", "viewer"] as MemberRole[])
+                                                                ).map((r) => (
+                                                                    <option key={r} value={r}>{ROLE_META[r]?.label ?? r}</option>
+                                                                ))}
+                                                            </select>
+                                                        )}
+                                                        {m.role !== "owner" && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveMember(m)}
+                                                                className="w-8 h-8 rounded-xl border border-rose-100 bg-rose-50 text-rose-400 hover:bg-rose-100 hover:text-rose-600 transition inline-flex items-center justify-center"
+                                                                aria-label="Çalışanı kaldır"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </section>
+                                )}
 
-                {/* Logout */}
+                                {hasPendingRoles && (
+                                    <div className="flex items-center justify-between gap-3 pt-1">
+                                        <p className="text-[11px] text-amber-700 font-semibold">
+                                            {Object.keys(pendingRoles).length} kaydedilmemiş değişiklik
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPendingRoles({})}
+                                                className="text-[11px] font-semibold text-gray-500 hover:text-gray-700 transition"
+                                            >
+                                                Geri al
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveRoles}
+                                                disabled={savingRoles}
+                                                className="inline-flex items-center gap-1.5 rounded-xl bg-[#111110] text-white px-3.5 py-2 text-[11px] font-bold hover:bg-gray-800 transition disabled:opacity-60"
+                                            >
+                                                <Save className="w-3 h-3" />
+                                                {savingRoles ? "Kaydediliyor…" : "Değişiklikleri Kaydet"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                        </div>
+                    )}
+                </Section>
+
+                {/* ── Sign out ── */}
                 <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <div className="p-5">
                         <button
                             type="button"
                             onClick={handleSignOut}
-                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 px-4 py-2.5 text-xs font-bold hover:bg-rose-100 transition"
+                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 px-4 py-2.5 text-xs font-bold hover:bg-rose-100 transition"
                         >
                             <LogOut className="w-3.5 h-3.5" />
-                            Çıkış yap
+                            Çıkış Yap
                         </button>
                     </div>
                 </section>
+
             </div>
         </div>
     );
 }
-

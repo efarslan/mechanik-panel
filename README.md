@@ -45,6 +45,22 @@ The main goal is to eliminate unstructured records and make service workflows fu
 - Firebase (Auth, Firestore, Storage)
 - Tailwind CSS
 ---
+## 📄 Documentation
+
+This project includes structured BA and QA documentation alongside the source code.
+
+### Business Analysis
+- System overview, personas, and epics → `docs/ba/`
+- Feature specifications per module (Vehicle, Service, Reporting) → `docs/ba/features/`
+- Process flow diagrams → `docs/ba/diagrams/`
+
+### Quality Assurance
+- Feature-level test cases (Create Vehicle, Vehicle Detail) → `docs/qa/`
+- Cross-module integration tests → `docs/qa/cross-module-tests.md`
+- System-level test scenarios → `docs/qa/system_testcases.md`
+
+> Documentation was written to simulate a real-world BA + QA workflow alongside development.
+---
 ## 🚀 Getting Started
 Install dependencies and run the development server:
 ```bash
